@@ -1,0 +1,47 @@
+# Python/cache/build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+unsloth_compiled_cache/
+
+# Native compiled artifacts
+*.so
+*.o
+*.a
+
+# Large model weights/checkpoints
+checkpoints/
+*.pth
+*.pth.tar
+*.pt
+*.onnx
+*.safetensors
+*.ckpt
+*.bin
+
+# Local videos, generated media, and bulky visual assets
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Local generated datasets and outputs
+soccer_input_dataset/
+data/
+
+# User-requested excluded planning/research documents
+体育类AI自动剪辑产品调研与技术需求.md
+足球技战术分析优先级路线图.md
+足球技战术分析最终优先级总结.md
+足球技战术分析维度与优先级速览.md
+足球技战术分析调研.md
