@@ -28,6 +28,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-root", default="soccer_input_dataset/gsr_demo")
     parser.add_argument("--batch-size", type=int, default=4, help="Frame batch size for detector inference.")
     parser.add_argument(
+        "--homography-stride",
+        type=int,
+        default=1,
+        help="Recompute pitch homography every N frames and reuse it between keyframes.",
+    )
+    parser.add_argument(
         "--recall-optimized",
         action="store_true",
         help="Use lower detector/tracker thresholds and softer final filtering for demo recall.",
@@ -106,6 +112,11 @@ def write_demo_config(
     }
     if any(color_hints.values()):
         cfg["COLOR_HINTS"] = color_hints
+        cfg["TEAM_IDENTITY"] = {
+            "MIN_EVIDENCE_FRAMES": 3,
+            "MIN_CONFIDENCE": 0.58,
+            "MIN_MARGIN": 0.18,
+        }
 
     if fast_mode:
         cfg.setdefault("TRACKER", {})["WITH_REID"] = False
@@ -242,13 +253,23 @@ def main() -> int:
             template_npy="template/soccernet_template_97.npy",
             save_viz=False,
             verbose=True,
+            frame_skip=max(1, args.homography_stride),
         )
     copy_homographies(result_dir, image_dir)
 
     run_step("tracking-recognition", [sys.executable, "inference_soccernetGSR.py", "--config", str(config_path)])
     run_step("remove-duplicates", [sys.executable, "IDATR/rmv_doub_bbox.py", "--config", str(config_path)])
-    run_step("generate-tracklets", [sys.executable, "IDATR/gen_tracklets.py", "--config", str(config_path)])
-    run_step("refine-tracklets", [sys.executable, "IDATR/refine_tracklets.py", "--config", str(config_path)])
+    if args.fast_mode:
+        # ReID is disabled in fast mode, so its embeddings are zero vectors and
+        # appearance-based all-pairs tracklet merging has no valid evidence.
+        rmved_path = video_dir / f"rmved_{args.video_name}.txt"
+        refined_path = video_dir / f"refined_{args.video_name}.txt"
+        shutil.copy2(rmved_path, refined_path)
+        print(f"Fast mode: reused de-duplicated tracks as {refined_path}")
+    else:
+        run_step("generate-tracklets", [sys.executable, "IDATR/gen_tracklets.py", "--config", str(config_path)])
+        run_step("refine-tracklets", [sys.executable, "IDATR/refine_tracklets.py", "--config", str(config_path)])
+    run_step("refine-team-identities", [sys.executable, "refine_team_identities.py", "--config", str(config_path)])
     run_step("court-meter", [sys.executable, "IDATR/create_court_file.py", "--config", str(config_path)])
     run_step("json-format", [sys.executable, "write_json_file_team.py", "--config", str(config_path)])
 

@@ -33,6 +33,8 @@ from yolox.utils.transforms import get_transforms
 from transformers import TextStreamer
 from jersey_model.CLIPFinetune import CLIPFinetune
 import clip
+from jersey_color import estimate_jersey_color
+from team_identity import apply_track_identities, identity_report_rows, infer_track_identities
 
 warnings.filterwarnings("ignore")
 
@@ -245,40 +247,7 @@ def bbox_distance(bbox1, bbox2):
 
 def fast_color_name_from_crop(crop):
     """Estimate the dominant jersey color from the upper body crop in BGR space."""
-    if crop is None or crop.size == 0:
-        return "unknown"
-
-    h, w = crop.shape[:2]
-    y1 = int(h * 0.15)
-    y2 = max(y1 + 1, int(h * 0.72))
-    x1 = int(w * 0.20)
-    x2 = max(x1 + 1, int(w * 0.80))
-    roi = crop[y1:y2, x1:x2]
-    if roi.size == 0:
-        roi = crop
-
-    roi = cv2.resize(roi, (32, 32), interpolation=cv2.INTER_AREA)
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    hue = hsv[..., 0]
-    sat = hsv[..., 1]
-    val = hsv[..., 2]
-
-    masks = {
-        "white": (sat < 60) & (val > 150),
-        "black": val < 75,
-        "grey": (sat < 45) & (val >= 75) & (val <= 150),
-        "red": (((hue <= 10) | (hue >= 170)) & (sat > 60) & (val > 50)),
-        "orange": (hue >= 11) & (hue < 20) & (sat > 70) & (val > 70),
-        "yellow": (hue >= 20) & (hue <= 38) & (sat > 60) & (val > 80),
-        "green": (hue >= 39) & (hue <= 85) & (sat > 50) & (val > 50),
-        "blue": (hue >= 90) & (hue <= 135) & (sat > 45) & (val > 50),
-        "purple": (hue >= 136) & (hue <= 160) & (sat > 45) & (val > 50),
-        "pink": (hue > 160) & (hue < 170) & (sat > 45) & (val > 80),
-    }
-    counts = {name: int(mask.sum()) for name, mask in masks.items()}
-    color, pixels = max(counts.items(), key=lambda item: item[1])
-    min_pixels = max(8, int(roi.shape[0] * roi.shape[1] * 0.08))
-    return color if pixels >= min_pixels else "unknown"
+    return estimate_jersey_color(crop).label
 
 
 def fast_role_jersey_color(frame, tlwh):
@@ -405,8 +374,13 @@ def expand_color_hints(values):
     return colors
 
 
-def apply_manual_color_hints(track_df, color_hints, max_referees_per_frame=3):
-    """Assign roles and teams from user-provided jersey-color hints."""
+def apply_manual_color_hints(
+    track_df,
+    color_hints,
+    max_referees_per_frame=3,
+    identity_config=None,
+):
+    """Assign one stable role/team identity per track from kit-color evidence."""
     if track_df.empty or not color_hints:
         return track_df
 
@@ -415,83 +389,39 @@ def apply_manual_color_hints(track_df, color_hints, max_referees_per_frame=3):
     referee_colors = expand_color_hints(color_hints.get("REFEREE_COLORS"))
     gk0_colors = expand_color_hints(color_hints.get("GOALKEEPER_TEAM0_COLORS"))
     gk1_colors = expand_color_hints(color_hints.get("GOALKEEPER_TEAM1_COLORS"))
-
     if not any([team0_colors, team1_colors, referee_colors, gk0_colors, gk1_colors]):
         return track_df
 
-    track_df = track_df.copy()
-    track_df["role"] = track_df["role"].astype(str)
-    track_df["color"] = track_df["color"].astype(str).str.strip().str.lower()
-    non_ball = track_df["role"].str.lower() != "ball"
-
-    # Start from player/unknown for all non-ball, then apply explicit color rules.
-    track_df.loc[non_ball & (track_df["role"].str.lower() == "referee"), "role"] = "Player"
-    track_df.loc[non_ball, "team"] = -1
-
-    team0_all = team0_colors | gk0_colors
-    team1_all = team1_colors | gk1_colors
-    if team0_all:
-        mask = non_ball & track_df["color"].isin(team0_all)
-        track_df.loc[mask, "role"] = "Player"
-        track_df.loc[mask, "team"] = 0
-    if team1_all:
-        mask = non_ball & track_df["color"].isin(team1_all)
-        track_df.loc[mask, "role"] = "Player"
-        track_df.loc[mask, "team"] = 1
-    for goalkeeper_colors, team_id in [(gk0_colors, 0), (gk1_colors, 1)]:
-        if not goalkeeper_colors:
-            continue
-        gk_mask = non_ball & track_df["color"].isin(goalkeeper_colors)
-        track_df.loc[gk_mask, "role"] = "Player"
-        track_df.loc[gk_mask, "team"] = team_id
-        track_color_strength = track_df[gk_mask].groupby("track_id").size().to_dict()
-        for _, frame_df in track_df.groupby("frame", sort=False):
-            candidates = frame_df[
-                non_ball.reindex(frame_df.index, fill_value=False)
-                & frame_df["color"].isin(goalkeeper_colors)
-                & (frame_df["team"] == team_id)
-                & (frame_df["h"] >= 25)
-            ].copy()
-            if candidates.empty:
-                continue
-            candidates["_track_color_strength"] = candidates["track_id"].map(track_color_strength).fillna(0)
-            selected = candidates.sort_values(
-                ["_track_color_strength", "h", "score"],
-                ascending=False,
-            ).head(1).index
-            track_df.loc[selected, "role"] = "Goalkeeper"
-            track_df.loc[selected, "team"] = team_id
-
-    if referee_colors:
-        ref_mask = non_ball & track_df["color"].isin(referee_colors)
-        track_df.loc[ref_mask, "role"] = "Player"
-        track_df.loc[ref_mask, "team"] = -1
-        track_color_strength = track_df[ref_mask].groupby("track_id").size().to_dict()
-        for _, frame_df in track_df.groupby("frame", sort=False):
-            candidates = frame_df[
-                non_ball.reindex(frame_df.index, fill_value=False)
-                & frame_df["color"].isin(referee_colors)
-                & (frame_df["h"] >= 25)
-            ].copy()
-            if candidates.empty:
-                continue
-            candidates["_track_color_strength"] = candidates["track_id"].map(track_color_strength).fillna(0)
-            selected = candidates.sort_values(
-                ["_track_color_strength", "h", "score"],
-                ascending=False,
-            ).head(max_referees_per_frame).index
-            track_df.loc[selected, "role"] = "Referee"
-            track_df.loc[selected, "team"] = -1
-
+    result = track_df.copy()
+    result["role"] = result["role"].astype(str)
+    result["color"] = result["color"].astype(str).str.strip().str.lower()
+    groups = {
+        "team0": team0_colors - gk0_colors,
+        "team1": team1_colors - gk1_colors,
+        "goalkeeper_team0": gk0_colors,
+        "goalkeeper_team1": gk1_colors,
+        "referee": referee_colors,
+    }
+    identity_config = identity_config or {}
+    decisions = infer_track_identities(
+        result,
+        groups,
+        minimum_evidence_frames=int(identity_config.get("MIN_EVIDENCE_FRAMES", 3)),
+        minimum_confidence=float(identity_config.get("MIN_CONFIDENCE", 0.58)),
+        minimum_margin=float(identity_config.get("MIN_MARGIN", 0.18)),
+    )
+    result = apply_track_identities(result, decisions, max_referees_per_frame=max_referees_per_frame)
+    result.attrs["team_identity_report"] = identity_report_rows(decisions.values())
     print(
-        "Applied COLOR_HINTS:",
+        "Applied track-level COLOR_HINTS:",
         {
-            "team0": sorted(team0_all),
-            "team1": sorted(team1_all),
+            "team0": sorted(team0_colors | gk0_colors),
+            "team1": sorted(team1_colors | gk1_colors),
             "referee": sorted(referee_colors),
+            "stable_tracks": len(decisions),
         },
     )
-    return track_df
+    return result
 
 
 
@@ -931,7 +861,9 @@ class GSRPipeline:
                 track_df,
                 color_hints,
                 max_referees_per_frame=max_refs,
+                identity_config=self.cfg.get("TEAM_IDENTITY") or {},
             )
+            self.last_team_identity_report = track_df.attrs.get("team_identity_report", [])
         else:
             track_df = global_color_team_assignment(track_df)
             if self.fast_mode:
@@ -939,6 +871,7 @@ class GSRPipeline:
                     track_df,
                     max_referees_per_frame=max_refs,
                 )
+            self.last_team_identity_report = []
 
         # Return them
         return track_df, list(dataset.img_paths)
@@ -979,6 +912,16 @@ class GSRPipeline:
                 
                 # Unify team assignments
                 track_df = unify_team_assignments(track_df)
+
+                identity_report = getattr(self, "last_team_identity_report", [])
+                if identity_report:
+                    identity_report_path = osp.join(
+                        video_output_dir,
+                        f'team_identity_{Path(video_output_dir).stem}.json',
+                    )
+                    with open(identity_report_path, "w", encoding="utf-8") as handle:
+                        json.dump(identity_report, handle, ensure_ascii=False, indent=2)
+                    print(f"Saved team identity report to {identity_report_path}")
 
                 # Define filenames
                 # Using video_output_dir as the output_dir context

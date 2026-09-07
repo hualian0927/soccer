@@ -71,14 +71,17 @@ def majority_voting(df):
     
     return tracklet_jersey, tracklet_roles, tracklet_color
 
-def determine_team_sides(df):
+def determine_team_sides(df, preserve_unknown=False, use_configured_team_ids=False):
     from collections import Counter
     # -----------------------
     # STEP 1: Assign players using your original approach
     # -----------------------
     valid_df = df[df.team.isin([0, 1])]
     print(valid_df.groupby(['role', 'color']).size().reset_index(name='count').sort_values(by='count', ascending=False))
-    if not valid_df.empty:
+    if use_configured_team_ids:
+        mapping = {0: "left", 1: "right"}
+        threshold = np.nanmedian(df["x_middle"])
+    elif not valid_df.empty:
         team_a = valid_df[valid_df.team == 0]
         team_b = valid_df[valid_df.team == 1]
         avg_a = np.nanmean(team_a["x_middle"])
@@ -98,6 +101,8 @@ def determine_team_sides(df):
         # If this detection has a valid team value, use the mapping
         if row["team"] in mapping:
             return mapping[row["team"]]
+        elif preserve_unknown:
+            return None
         else:
             # Otherwise compare x_middle to threshold
             return "left" if row["x_middle"] < threshold else "right"
@@ -111,9 +116,10 @@ def determine_team_sides(df):
     # If a goalkeeper's x_middle is > 0, force it to "right", else "left"
     # (assuming your pitch center is x=0).
     # This is a simple approach for keepers who stand near their respective goals.
-    is_gk = (df["role"] == "Goalkeeper") & (~df["x_middle"].isna())
-    df.loc[is_gk & (df["x_middle"] > 0), "team_side"] = "right"
-    df.loc[is_gk & (df["x_middle"] <= 0), "team_side"] = "left"
+    if not use_configured_team_ids:
+        is_gk = (df["role"] == "Goalkeeper") & (~df["x_middle"].isna())
+        df.loc[is_gk & (df["x_middle"] > 0), "team_side"] = "right"
+        df.loc[is_gk & (df["x_middle"] <= 0), "team_side"] = "left"
 
     # -----------------------
     # STEP 3: Majority team side per tracklet
@@ -333,10 +339,13 @@ def postprocess_ball_only(
         if fallback_roles:
             fallback_role, fallback_data = max(fallback_roles.items(), key=lambda item: item[1]["count"])
             rows = fallback_data["rows"]
+            fallback_team = _most_common_clean([row["team"] for row in rows], default=None)
+            if use_color_hints:
+                fallback_team = {0: "left", 1: "right"}.get(fallback_team)
             track_fallback_attrs[track_id] = {
                 "role": fallback_role,
                 "jersey": _most_common_clean([row["jersey"] for row in rows], default=100),
-                "team": _most_common_clean([row["team"] for row in rows], default=None),
+                "team": fallback_team,
                 "color": _most_common_clean([row["color"] for row in rows], default=None),
             }
 
@@ -665,6 +674,7 @@ def write_predictions_json(
         flow_max_pairs=flow_max_pairs,
         flow_max_residual=flow_max_residual,
         flow_max_error=flow_max_error,
+        use_color_hints=use_color_hints,
     )
 
     if not use_color_hints:
@@ -733,7 +743,11 @@ def main(vdo_clip_path, vdo_path, vdo_name, cfg):
     # Compute majority voting for jersey numbers and roles.
     tracklet_jersey, tracklet_roles, tracklet_color = majority_voting(court_meter_df)
     # Determine team side (left/right) per tracklet.
-    tracklet_team_side = determine_team_sides(court_meter_df)
+    tracklet_team_side = determine_team_sides(
+        court_meter_df,
+        preserve_unknown=bool(cfg.get("COLOR_HINTS")),
+        use_configured_team_ids=bool(cfg.get("COLOR_HINTS")),
+    )
     # Build tracklet-level JSON structure.
     tracklet_results = generate_tracklet_json(tracklet_jersey, tracklet_roles, tracklet_team_side, tracklet_color)
 

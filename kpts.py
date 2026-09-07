@@ -1030,6 +1030,7 @@ def predict_soccernet_inference(
     save_viz=True,  # New argument to control saving result.jpg
     npy_subfolder="npy_files",  # Subfolder for .npy
     viz_subfolder="viz",  # Subfolder for result.jpg
+    frame_skip=1,
 ):
     """Main inference function for tennis court detection"""
     model.eval()
@@ -1111,8 +1112,9 @@ def predict_soccernet_inference(
         "All lines"
     ]
 
-    # Process frames in batches of 30, only computing homography for first frame in each batch
-    frame_skip = 1  # Process one frame, then skip 29 frames
+    # Compute one homography per short temporal batch and reuse it for the
+    # following frames. A stride of 1 preserves the original behavior.
+    frame_skip = max(1, int(frame_skip))
 
     # First, collect all image paths from the dataloader
     all_images = []
@@ -1646,6 +1648,7 @@ def predict(
     save_viz=False,
     verbose=True,
     npy_subfolder="npy_files",
+    frame_skip=1,
 ):
     """
     Main prediction function for tennis court detection
@@ -1658,6 +1661,7 @@ def predict(
         template_npy (str): Path to template keypoints
         save_viz (bool): Whether to save visualization images
         verbose (bool): Whether to show progress and debug info
+        frame_skip (int): Recompute homography every N frames
     """
     # Create configuration with custom paths
     config = Configuration()
@@ -1717,6 +1721,7 @@ def predict(
         save_viz=save_viz,
         npy_subfolder=npy_subfolder,
         viz_subfolder="viz",
+        frame_skip=frame_skip,
     )
 
     print("Inference complete.")

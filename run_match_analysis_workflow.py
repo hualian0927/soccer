@@ -401,7 +401,7 @@ def render_segments(input_video: Path, output_root: Path, segments: list[Segment
                 "--subject-uniform",
                 args.subject_uniform,
                 "--keyframe-pause-sec",
-                "1.2",
+                "0.6",
                 "--keyframe-pause-policy",
                 "high-value",
                 "--max-keyframes",

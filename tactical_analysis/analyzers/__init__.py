@@ -1,0 +1,43 @@
+"""Built-in tactical analyzers."""
+
+from . import (
+    attacking_chains,
+    defensive_gaps,
+    defensive_interventions,
+    defensive_risk,
+    events,
+    formation,
+    goalkeeper,
+    numerical_superiority,
+    pass_network,
+    phases,
+    pressing,
+    progression,
+    quality,
+    relations,
+    set_pieces,
+    spatial,
+    team_shape,
+    transitions,
+)
+
+__all__ = [
+    "attacking_chains",
+    "defensive_gaps",
+    "defensive_interventions",
+    "defensive_risk",
+    "events",
+    "formation",
+    "goalkeeper",
+    "numerical_superiority",
+    "pass_network",
+    "phases",
+    "pressing",
+    "progression",
+    "quality",
+    "relations",
+    "set_pieces",
+    "spatial",
+    "team_shape",
+    "transitions",
+]

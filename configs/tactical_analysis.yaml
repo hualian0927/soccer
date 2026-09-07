@@ -1,0 +1,184 @@
+pipeline:
+  # P0-P2 build stable evidence first; P3 consumes the shared ball, possession and shape state.
+  analyzers:
+    - data_quality
+    - event_timeline
+    - defensive_interventions
+    - spatial_structure
+    - team_shape_engine
+    - formation_tendency
+    - relational_space
+    - set_piece_delivery
+    - goalkeeper_interventions
+    - phase_of_play
+    - progression_analysis
+    - attacking_chains
+    - defensive_third_risk
+    - pass_network
+    - numerical_superiority
+    - pressing_analysis
+    - defensive_gaps
+    - transition_analysis
+  continue_on_error: true
+
+analyzers:
+  data_quality: {}
+
+  event_timeline:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    min_pass_distance_m: 4.0
+    min_carry_distance_m: 6.0
+    min_carry_progress_m: 4.0
+    min_carry_duration_sec: 0.7
+    max_carry_duration_sec: 12.0
+    shot_speed_mps: 18.0
+    max_ball_speed_mps: 55.0
+    shot_owner_lookback_sec: 0.8
+    corner_cooldown_sec: 8.0
+    max_event_findings: 16
+
+  defensive_interventions:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+
+  spatial_structure:
+    min_track_samples: 8
+
+  team_shape_engine:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    sample_step_frames: 10
+    minimum_visible_players: 7
+
+  formation_tendency:
+    min_visible_players: 7
+    sample_step_frames: 25
+    minimum_frame_confidence: 0.28
+    minimum_supporting_samples: 3
+    minimum_aggregate_confidence: 0.45
+    minimum_vote_ratio: 0.45
+
+  relational_space:
+    sample_step_frames: 12
+    control_radius_m: 8.0
+    local_radius_m: 14.0
+    overload_margin: 2
+    min_corner_players: 6
+    candidate_cooldown_sec: 6.0
+
+  set_piece_delivery:
+    stationary_speed_mps: 2.5
+    restart_speed_mps: 6.0
+    minimum_stationary_sec: 0.7
+    landing_window_sec: 7.0
+    landing_control_radius_m: 6.0
+    candidate_cooldown_sec: 8.0
+    maximum_ball_gap_sec: 0.6
+
+  goalkeeper_interventions:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    intervention_radius_m: 5.5
+    approach_radius_m: 14.0
+    minimum_proximity_duration_sec: 0.4
+    minimum_proximity_samples: 6
+    minimum_approach_distance_m: 4.5
+    maximum_ball_gap_sec: 0.7
+    candidate_cooldown_sec: 4.0
+    goal_area_depth_m: 14.0
+    goal_area_half_width_m: 20.16
+    maximum_goalkeeper_response_mps: 9.0
+
+  phase_of_play:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    max_motion_gap_sec: 0.6
+    motion_smoothing: 0.55
+    state_transition_window_sec: 3.0
+
+  progression_analysis:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    min_pass_distance_m: 4.0
+    max_findings: 8
+
+  attacking_chains:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    min_pass_distance_m: 4.0
+    shot_speed_mps: 18.0
+    max_ball_speed_mps: 55.0
+    maximum_chain_lookback_sec: 20.0
+
+  defensive_third_risk:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    min_pass_distance_m: 4.0
+    shot_speed_mps: 18.0
+    max_ball_speed_mps: 55.0
+
+  pass_network:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    min_pass_distance_m: 4.0
+    minimum_passes: 3
+
+  numerical_superiority:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    local_radius_m: 14.0
+    minimum_advantage: 2
+    minimum_attackers: 3
+    sample_step_frames: 5
+    maximum_episode_gap_sec: 0.65
+    minimum_episode_sec: 0.3
+    outcome_window_sec: 8.0
+    max_findings: 8
+
+  transition_analysis:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    maximum_unknown_gap_sec: 1.2
+    minimum_possession_hold_sec: 0.8
+    window_sec: 5.0
+    shape_recovery_window_sec: 12.0
+    minimum_shape_recovery_sec: 1.5
+    shape_recovery_tolerance: 0.22
+    minimum_shape_players: 7
+    max_findings: 8
+
+  pressing_analysis:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    pressure_radius_m: 12.0
+    active_distance_m: 9.0
+    sample_step_frames: 5
+    maximum_episode_gap_sec: 0.65
+    minimum_episode_sec: 0.4
+    max_findings: 8
+
+  defensive_gaps:
+    control_radius_m: 7.5
+    possession_confirm_samples: 3
+    possession_release_samples: 4
+    sample_step_frames: 5
+    minimum_visible_defenders: 7
+    minimum_line_gap_m: 12.0
+    pressure_radius_m: 8.0
+    maximum_episode_gap_sec: 0.65
+    minimum_episode_sec: 0.3
+    outcome_window_sec: 8.0
+    max_findings: 8

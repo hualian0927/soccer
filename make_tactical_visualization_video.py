@@ -24,17 +24,26 @@ HALF_WIDTH = PITCH_WIDTH / 2
 
 
 COLORS = {
-    "left": (50, 70, 235),
-    "right": (235, 90, 35),
+    "left": (235, 105, 35),
+    "right": (245, 245, 245),
     "referee": (235, 40, 235),
     "ball": (20, 220, 255),
-    "other": (180, 180, 180),
+    "other": (20, 165, 255),
     "white": (245, 245, 245),
     "black": (20, 24, 28),
     "panel": (18, 22, 26),
     "pitch": (43, 126, 49),
     "danger": (40, 45, 245),
 }
+
+DISPLAY_COLORS = {
+    "blue": (235, 105, 35),
+    "white": (245, 245, 245),
+    "red": (45, 45, 235),
+    "yellow": (20, 220, 255),
+    "green": (55, 200, 75),
+}
+TEAM_LABELS = {"left": "蓝队", "right": "白队"}
 
 
 @dataclass
@@ -155,6 +164,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yolo-model", default="yolov8n.pt")
     parser.add_argument("--fallback-min-boxes", type=int, default=4)
     parser.add_argument("--fallback-conf", type=float, default=0.25)
+    parser.add_argument("--team0-label", default="蓝队", help="Display label for JSON team 'left'.")
+    parser.add_argument("--team1-label", default="白队", help="Display label for JSON team 'right'.")
+    parser.add_argument("--team0-display-color", choices=sorted(DISPLAY_COLORS), default="blue")
+    parser.add_argument("--team1-display-color", choices=sorted(DISPLAY_COLORS), default="white")
     return parser.parse_args()
 
 
@@ -488,18 +501,15 @@ def draw_mini_pitch(
 ) -> None:
     ox, oy = origin
     width, height = size
-    blend_rect(frame, ox - 10, oy - 34, ox + width + 10, oy + height + 10, COLORS["panel"], 0.68)
-    put_text(frame, "战术板", (ox, oy - 12), scale=0.58, thickness=1)
+    blend_rect(frame, ox - 10, oy - 34, ox + width + 10, oy + height + 34, COLORS["panel"], 0.68)
+    put_text(frame, "球员分布", (ox, oy - 12), scale=0.58, thickness=1)
 
     cv2.rectangle(frame, (ox, oy), (ox + width, oy + height), COLORS["pitch"], -1)
-    draw_heatmap(frame, origin, size, state)
     line = COLORS["white"]
     cv2.rectangle(frame, (ox, oy), (ox + width, oy + height), line, 1)
     cv2.line(frame, (ox + width // 2, oy), (ox + width // 2, oy + height), line, 1)
     cv2.circle(frame, (ox + width // 2, oy + height // 2), int(height * 9.15 / PITCH_WIDTH), line, 1)
     cv2.circle(frame, (ox + width // 2, oy + height // 2), 2, line, -1)
-    draw_pitch_guides(frame, origin, size)
-    draw_analysis_zones(frame, origin, size, state)
 
     pa_w = int(width * 16.5 / PITCH_LENGTH)
     pa_h = int(height * 40.32 / PITCH_WIDTH)
@@ -514,42 +524,28 @@ def draw_mini_pitch(
             cv2.rectangle(frame, (gx - pa_w, oy + (height - pa_h) // 2), (gx, oy + (height + pa_h) // 2), line, 1)
             cv2.rectangle(frame, (gx - six_w, oy + (height - six_h) // 2), (gx, oy + (height + six_h) // 2), line, 1)
 
-    for idx, (x, y) in enumerate(ball_trail):
-        px, py = pitch_to_panel(x, y, origin, size)
-        alpha_radius = max(1, int(2 + 3 * (idx + 1) / max(1, len(ball_trail))))
-        cv2.circle(frame, (px, py), alpha_radius, COLORS["ball"], -1)
-
-    by_team: dict[str, list[tuple[float, float]]] = defaultdict(list)
     for det in detections:
         if det.pitch_x is None or det.pitch_y is None:
             continue
         if not (-HALF_LENGTH - 8 <= det.pitch_x <= HALF_LENGTH + 8 and -HALF_WIDTH - 6 <= det.pitch_y <= HALF_WIDTH + 6):
             continue
         px, py = pitch_to_panel(det.pitch_x, det.pitch_y, origin, size)
-        color = role_color(det)
-        radius = 4 if det.role == "ball" else 3
-        if det.role == "referee":
-            radius = 3
-        cv2.circle(frame, (px, py), radius, color, -1)
-        if det.team in {"left", "right"} and det.role in {"player", "goalkeeper"}:
-            by_team[det.team].append((det.pitch_x, det.pitch_y))
-
-    for team, points in by_team.items():
-        if not points:
+        if det.role not in {"ball", "referee", "player", "goalkeeper"}:
             continue
-        cx = float(np.mean([p[0] for p in points]))
-        cy = float(np.mean([p[1] for p in points]))
-        px, py = pitch_to_panel(cx, cy, origin, size)
-        cv2.drawMarker(frame, (px, py), COLORS[team], cv2.MARKER_STAR, 13, 2, cv2.LINE_AA)
-        shape = (state.latest_shapes.get(team) if state else None) or {}
-        if shape:
-            left = shape["cx"] - shape["depth"] / 2
-            right = shape["cx"] + shape["depth"] / 2
-            bottom = shape["cy"] - shape["width"] / 2
-            top = shape["cy"] + shape["width"] / 2
-            p1 = pitch_to_panel(left, top, origin, size)
-            p2 = pitch_to_panel(right, bottom, origin, size)
-            cv2.rectangle(frame, p1, p2, COLORS[team], 1, cv2.LINE_AA)
+        color = role_color(det)
+        radius = 3 if det.role in {"ball", "referee"} else 4
+        if det.team == "right":
+            cv2.circle(frame, (px, py), radius + 1, COLORS["black"], -1, cv2.LINE_AA)
+        cv2.circle(frame, (px, py), radius, color, -1, cv2.LINE_AA)
+
+    legend_y = oy + height + 25
+    cv2.circle(frame, (ox + 6, legend_y - 5), 4, COLORS["left"], -1, cv2.LINE_AA)
+    put_text(frame, TEAM_LABELS["left"], (ox + 15, legend_y), scale=0.38, color=COLORS["white"])
+    cv2.circle(frame, (ox + 79, legend_y - 5), 5, COLORS["black"], -1, cv2.LINE_AA)
+    cv2.circle(frame, (ox + 79, legend_y - 5), 4, COLORS["right"], -1, cv2.LINE_AA)
+    put_text(frame, TEAM_LABELS["right"], (ox + 88, legend_y), scale=0.38, color=COLORS["white"])
+    cv2.circle(frame, (ox + 152, legend_y - 5), 3, COLORS["referee"], -1, cv2.LINE_AA)
+    put_text(frame, "裁判", (ox + 160, legend_y), scale=0.38, color=COLORS["white"])
 
 
 def current_ball(detections: list[Detection]) -> Detection | None:
@@ -748,7 +744,12 @@ def counter_percent(counter: Counter, key: str) -> int:
 
 
 def zh_team(team: str | None) -> str:
-    return {"left": "蓝队", "right": "白队", "loose": "争抢中", "unknown": "未知"}.get(str(team), str(team))
+    return {
+        "left": TEAM_LABELS["left"],
+        "right": TEAM_LABELS["right"],
+        "loose": "争抢中",
+        "unknown": "未知",
+    }.get(str(team), str(team))
 
 
 def zh_zone(label: str) -> str:
@@ -826,11 +827,11 @@ def draw_info_panel(
     put_text(frame, "本段战术结论", (x1 + 14, y1 + 30), scale=0.64, thickness=2)
     put_text(frame, conclusion, (x1 + 14, y1 + 62), scale=0.54, thickness=1)
     put_text(frame, f"时间 {frame_idx / fps:05.2f}s  画面帧 {frame_idx}", (x1 + 14, y1 + 92), scale=0.44)
-    put_text(frame, f"控球占比：蓝队 {counter_percent(state.possession, 'left')}%  白队 {counter_percent(state.possession, 'right')}%  争抢 {counter_percent(state.possession, 'loose')}%", (x1 + 14, y1 + 120), scale=0.44)
+    put_text(frame, f"控球占比：{TEAM_LABELS['left']} {counter_percent(state.possession, 'left')}%  {TEAM_LABELS['right']} {counter_percent(state.possession, 'right')}%  争抢 {counter_percent(state.possession, 'loose')}%", (x1 + 14, y1 + 120), scale=0.44)
     put_text(frame, f"区域：{zh_zone(third)} / {zh_zone(channel)}    危险进攻帧：{state.danger_attacks}", (x1 + 14, y1 + 148), scale=0.44)
     put_text(frame, f"转换：{state.transitions} 次    球速：{state.ball_speed:04.1f} m/s    当前球权：{zh_possession(possession)}", (x1 + 14, y1 + 176), scale=0.44)
-    put_text(frame, f"站位紧凑度：蓝队 {zh_compactness(compact_l.get('label', 'unknown'))} / 白队 {zh_compactness(compact_r.get('label', 'unknown'))}", (x1 + 14, y1 + 204), scale=0.44)
-    put_text(frame, f"可见人数：蓝队 {counts['left']:02d}  白队 {counts['right']:02d}  裁判 {counts['referee']}", (x1 + 392, y1 + 92), scale=0.42)
+    put_text(frame, f"站位紧凑度：{TEAM_LABELS['left']} {zh_compactness(compact_l.get('label', 'unknown'))} / {TEAM_LABELS['right']} {zh_compactness(compact_r.get('label', 'unknown'))}", (x1 + 14, y1 + 204), scale=0.44)
+    put_text(frame, f"可见人数：{TEAM_LABELS['left']} {counts['left']:02d}  {TEAM_LABELS['right']} {counts['right']:02d}  裁判 {counts['referee']}", (x1 + 392, y1 + 92), scale=0.42)
     if danger:
         cv2.rectangle(frame, (x2 - 112, y1 + 14), (x2 - 14, y1 + 44), COLORS["danger"], -1)
         put_text(frame, "危险", (x2 - 94, y1 + 37), scale=0.54, thickness=2)
@@ -863,6 +864,8 @@ def draw_frame(
             continue
         color = role_color(det)
         thickness = 3 if det.role == "ball" else 2
+        if det.team == "right":
+            cv2.rectangle(output, (x - 1, y - 1), (x + w + 1, y + h + 1), COLORS["black"], thickness + 2)
         cv2.rectangle(output, (x, y), (x + w, y + h), color, thickness)
         if det.role == "ball":
             label = "球"
@@ -875,7 +878,7 @@ def draw_frame(
         elif det.team in {"left", "right"}:
             label = f"{zh_team(det.team)} {det.track_id}"
         else:
-            label = f"ID {det.track_id}"
+            label = f"待确认 {det.track_id}"
         put_text(output, label, (x, max(16, y - 6)), scale=0.46, color=color, thickness=1)
 
     pitch_w = max(280, output.shape[1] // 4)
@@ -888,6 +891,10 @@ def draw_frame(
 
 def main() -> int:
     args = parse_args()
+    TEAM_LABELS["left"] = args.team0_label
+    TEAM_LABELS["right"] = args.team1_label
+    COLORS["left"] = DISPLAY_COLORS[args.team0_display_color]
+    COLORS["right"] = DISPLAY_COLORS[args.team1_display_color]
     input_video = (PROJECT_ROOT / args.input_video).resolve()
     json_path = (PROJECT_ROOT / args.json_path).resolve()
     output_video = (PROJECT_ROOT / args.output_video).resolve()

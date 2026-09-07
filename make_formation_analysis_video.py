@@ -104,7 +104,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--snapshot-frame", type=int, default=4500)
     parser.add_argument("--min-visible", type=int, default=7)
     parser.add_argument("--confidence-threshold", type=float, default=52.0)
-    parser.add_argument("--keyframe-pause-sec", type=float, default=1.2)
+    parser.add_argument("--keyframe-pause-sec", type=float, default=0.6)
     parser.add_argument("--keyframe-cooldown-sec", type=float, default=18.0)
     parser.add_argument("--max-keyframes", type=int, default=10)
     return parser.parse_args()

@@ -18,15 +18,17 @@ This repository contains the official implementation for the SoccerNet Game Stat
 ### Prerequisites
 - Linux
 - NVIDIA GPU + CUDA
-- Python 3.12
+- Python 3.10（当前 `sports` 环境验证版本）
 - Conda
+
+完整的 WSL2、CUDA、Conda、模型目录和网页 Demo 配置步骤见 [本地环境配置与运行](docs/本地环境配置与运行.md)。
 
 ### Step-by-Step Installation
 
 1.  **Create a Virtual Environment**
     ```bash
-    conda create -n SoccernetGSR python=3.12
-    conda activate SoccernetGSR
+    conda create -n sports python=3.10
+    conda activate sports
     ```
 
 2.  **Install PyTorch**
@@ -68,9 +70,44 @@ data/
     test/
     challenge/
 ```
-Update `conf 4: Format Conversionigs/config.yaml` with the correct `DATA_DIR`.
+Update `configs/config.yaml` with the correct `DATA_DIR`.
 
 ## Usage
+
+### Local Tactical Analysis Framework
+
+The local extension includes a modular, visual-only tactical-analysis layer on top of SoccerNetGSR output. Its 18 analyzers cover the P0-P2 product chain plus four P3 candidates: sustained numerical superiority, high pressing/PPDA, defensive gaps, and transition speed. It produces structured JSON, a concise Chinese report, CSV event/highlight indexes, and an interleaved review video:
+
+```bash
+python run_tactical_analysis.py \
+    --json-path soccer_input_dataset/gsr_demo/SoccerNetGS/test/SNGS-1000/SNGS-1000.json \
+    --input-video soccer_input_dataset/test_5min.mp4 \
+    --output-dir soccer_input_dataset/outputs/tactical_framework_test_5min
+```
+
+Render the conclusions at their evidence timestamps:
+
+```bash
+python make_tactical_report_video.py \
+    --input-video soccer_input_dataset/outputs/test_5min_current/test_5min_tactical_base_clean_v2.mp4 \
+    --report-json soccer_input_dataset/outputs/tactical_framework_test_5min/tactical_analysis_report.json \
+    --output-video soccer_input_dataset/outputs/tactical_framework_test_5min/tactical_review.mp4 \
+    --interleave-chapters
+```
+
+See [the tactical-analysis framework guide](docs/tactical_analysis_framework.md) for the priority chain, paper-inspired design, module boundaries, and extension process.
+
+### Local Web Demo
+
+The React/Vite preview provides video upload, project organization, an L1 event timeline, manual event review, set-piece type counts, and one playable evidence clip per set piece:
+
+```bash
+cd web_preview
+npm ci
+npm run dev
+```
+
+Open `http://localhost:4173/`. Model weights and input/output videos are intentionally not included in this repository.
 
 ### Step 1: Download Weights
 Download the required model weights from Google Drive.
@@ -78,7 +115,7 @@ Download the required model weights from Google Drive.
 python download_properties.py
 ```
 
-### Step 2:  4: Format ConversionHomography Estimation
+### Step 2: Homography Estimation
 Run `kpts.py` to generate homography matrices (`.npy` files) for the video frames.
 ```bash
 python kpts.py
