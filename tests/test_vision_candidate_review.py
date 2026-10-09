@@ -2,7 +2,7 @@ import unittest
 
 from tactical_analysis.l1 import _event_outcome, _evidence_window, _summary_text
 from tactical_analysis.models import TimelineEvent
-from review_tactical_candidates_with_vision import (
+from workflows.review.review_tactical_candidates_with_vision import (
     build_request,
     evidence_bounds,
     find_candidate,

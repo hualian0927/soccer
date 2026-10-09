@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from analyze_full_pitch_projection import deduplicate_players, sanitize_vision, shape_metrics
+from workflows.projection.analyze_full_pitch_projection import deduplicate_players, sanitize_vision, shape_metrics
 
 
 class FullPitchProjectionTest(unittest.TestCase):

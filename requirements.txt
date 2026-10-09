@@ -39,6 +39,6 @@ sahi==0.11.36
 jsonschema>=4.23,<5
 ultralytics==8.4.37
 SoccerNet==0.1.62
-# Optional LLaMA jersey mode: requirements-llama.txt
+# Optional LLaMA jersey mode: requirements/llama.txt
 # torchreid is often installed via: pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
 clip @ git+https://github.com/openai/CLIP.git

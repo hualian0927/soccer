@@ -39,9 +39,10 @@ checkpoints/
 
 # Local generated datasets and outputs
 soccer_input_dataset/
-data/
+/data/
 Sportec Open DFL/
 sports-paper/
+docs/local_research/
 
 # Frontend dependencies, builds, local jobs, and browser-test artifacts
 web_preview/node_modules/

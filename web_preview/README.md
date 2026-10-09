@@ -31,21 +31,21 @@ npm run dev -- --host 127.0.0.1 --port 4173
 上传视频后，Vite 本地服务会把文件保存到忽略提交的 `web_preview/runtime/`，随后依次执行：
 
 ```text
-run_local_video_gsr_visualization.py
-  -> refine_gsr_video_identities.py
-  -> make_tactical_visualization_video.py --boxes-only
-  -> run_tactical_analysis.py
-  -> build_layered_tactical_review.py [--review-api]
+workflows/gsr/run_local_video_gsr_visualization.py
+  -> workflows/identity/refine_gsr_video_identities.py
+  -> workflows/visualization/make_tactical_visualization_video.py --boxes-only
+  -> workflows/tactical/run_tactical_analysis.py
+  -> workflows/review/build_layered_tactical_review.py [--review-api]
   -> FFmpeg H.264 网页兼容转码
-  -> build_player_focus_video.py
-  -> build_formation_evidence.py
+  -> workflows/players/build_player_focus_video.py
+  -> workflows/visualization/build_formation_evidence.py
 ```
 
 新上传视频的主画面只保留原片与人物、足球框；右侧按 L1 事件、L2 统计、L3 组织、L4 空间分层。模型文字及审核证据位于播放器下方，不烧录到画面。`test_5min.mp4` 会通过 SHA-256 匹配新版 `test_5min_layered_v2/` 缓存；其他视频会在 `sports` Conda 环境中执行完整流程。旧历史项目保留旧版展示。
 
 启动 Vite 前可设置 `DEEPSEEK_API_KEY` 环境变量以启用真实视觉审核。不要使用 `VITE_` 前缀，不要把密钥写入前端或提交 Git。未配置时仍生成候选、证据图片与分层报告，明确标记尚未视觉复核，不模拟 API 结果。每片默认最多抽样审核 20 个节点，每个节点前后各 5 秒、41 张全景图；门将候选另附局部图并独立复审，调用可能产生费用。
 
-`二维分析/` 中的 60 秒双机位俯视样例是单独的空间分析项目，不经过上传视频的 L1 流水线。它复用 `analyze_full_pitch_projection.py` 生成的 `spatial_analysis_report.json`，在网页中显示可见球员队形量化和逐时段视觉解释。该素材缺少足球轨迹与原始比赛画面，因此不判定传球、射门、角球或控球。详情见 `二维分析/空间技战术分析说明.md`。
+`二维分析/` 中的 60 秒双机位俯视样例是单独的空间分析项目，不经过上传视频的 L1 流水线。它复用 `workflows/projection/analyze_full_pitch_projection.py` 生成的 `spatial_analysis_report.json`，在网页中显示可见球员队形量化和逐时段视觉解释。该素材缺少足球轨迹与原始比赛画面，因此不判定传球、射门、角球或控球。详情见 `二维分析/空间技战术分析说明.md`。
 
 素材库和“五分钟比赛技战术复盘”项目中另有“五分钟定位球候选复核（修正版）”。它直接播放完整的视觉复核成片，不进入旧 L1 工作台；54 秒与 98 秒的角球几何候选均未获视觉确认。独立证据片段和模型复核 JSON 位于 `soccer_input_dataset/outputs/test_5min_corner_review_v2/`，目录内的 `复核说明.md` 记录了切片修正和证据边界。
 上述定位球修正版保留为历史结果；当前重新上传同一 `test_5min.mp4` 命中的是分层新版，不再使用该旧缓存。
@@ -66,7 +66,7 @@ run_local_video_gsr_visualization.py
 ## 本地接口
 
 新增 OpenAI 自动视觉审核路径：启动后端前设置 `OPENAI_API_KEY`，新上传视频会调用
-`run_openai_tactical_review.py`，固定使用 `gpt-5.6-sol`，优先于旧 DeepSeek 路径。
+`workflows/review/run_openai_tactical_review.py`，固定使用 `gpt-5.6-sol`，优先于旧 DeepSeek 路径。
 该路径包含动态补帧、出界去重复审、门将独立复审和分层评语，默认每任务最多 80 次请求、8 美元预估预算。
 密钥仅用于后端，不应使用 `VITE_` 前缀。终端交互输入只在当前进程中有效，重启服务需重新设置。
 完整配置、费用与准确性边界见 [OpenAI 视觉审核工作流](../docs/OpenAI视觉审核工作流.md)。

@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from jersey_color import estimate_jersey_color
-from team_identity import apply_track_identities, infer_track_identities, split_identity_inconsistent_tracks
+from workflows.identity.jersey_color import estimate_jersey_color
+from workflows.identity.team_identity import apply_track_identities, infer_track_identities, split_identity_inconsistent_tracks
 
 
 class TeamIdentityTest(unittest.TestCase):

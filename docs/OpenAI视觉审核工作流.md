@@ -33,7 +33,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `tactical_analysis/openai_review.py` | 官方 API 客户端、结构化契约、证据门控、预算与调用账本 |
-| `run_openai_tactical_review.py` | 抽帧、动态补证、独立复审、事件去重、组织/空间复核、报告发布 |
+| `workflows/review/run_openai_tactical_review.py` | 抽帧、动态补证、独立复审、事件去重、组织/空间复核、报告发布 |
 | `tests/test_openai_tactical_review.py` | 时间和帧引用校验、门将/定位球门控、费用约束、模型与拒绝状态等测试 |
 | `web_preview/server/local-analysis.js` | 网页上传后选择同一 OpenAI 审核入口、读取独立结果 |
 
@@ -53,7 +53,7 @@ export OPENAI_API_KEY
 ## 本地命令
 
 ```bash
-python run_openai_tactical_review.py \
+python -m workflows.review.run_openai_tactical_review \
   --bundle soccer_input_dataset/outputs/test_5min_layered_v2/layered_analysis.json \
   --output-dir soccer_input_dataset/outputs/test_5min_openai_v1 \
   --baseline soccer_input_dataset/outputs/test_5min_layered_v4/layered_analysis.json \

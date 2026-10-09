@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tactical_analysis.openai_review import (MODEL, BudgetExceeded, ReviewError, ResponsesReviewer,
     NoRedirect, read_response, responses_endpoint, parse_response, request_payload, validate_review)
-from run_openai_tactical_review import audit_boundaries, compare_baseline, deduplicate, supplementation
+from workflows.review.run_openai_tactical_review import audit_boundaries, compare_baseline, deduplicate, supplementation
 
 
 def review(**changes):
@@ -184,7 +184,7 @@ class OpenAIReviewTest(unittest.TestCase):
         record = {"task": {"id": "out", "time": 100}, "signature": "first",
                   "review": review(event_type="ball_out", subtype="touchline", contact_time_sec=None)}
         audit = {**record, "signature": "second"}
-        with patch("run_openai_tactical_review.review_task", return_value=audit) as tool:
+        with patch("workflows.review.run_openai_tactical_review.review_task", return_value=audit) as tool:
             result = audit_boundaries([record], Path("video.mp4"), 300, Path("output"), None, {}, {})
         self.assertEqual(tool.call_args.args[0]["kind"], "boundary_transition")
         self.assertEqual(result[0]["review"]["decision"], "uncertain")
@@ -213,7 +213,7 @@ class OpenAIReviewTest(unittest.TestCase):
     def test_explicit_boundary_rejection_is_preserved(self):
         record = {"task": {"id": "out", "time": 100}, "signature": "first", "review": review(event_type="ball_out")}
         audit = {**record, "review": review(event_type="ball_out", decision="rejected", contact_time_sec=None)}
-        with patch("run_openai_tactical_review.review_task", return_value=audit):
+        with patch("workflows.review.run_openai_tactical_review.review_task", return_value=audit):
             result = audit_boundaries([record], Path("video.mp4"), 300, Path("output"), None, {}, {})
         self.assertEqual(result[0]["review"]["decision"], "rejected")
 

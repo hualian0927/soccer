@@ -35,8 +35,8 @@
 | `tactical_analysis/analyzers/pressing.py` | 压迫高度、方向、触发、强度、结果和 PPDA 代理 |
 | `tactical_analysis/analyzers/transitions.py` | 进攻转换、反抢、回追与阵型恢复 |
 | `tactical_analysis/reporting.py` | 完整报告、比赛摘要和高光清单 |
-| `export_tactical_highlights.py` | 按清单导出带音频的技战术片段 |
-| `make_tactical_report_video.py` | 在证据发生时插入中文分析，并保留结尾总结 |
+| `workflows/visualization/export_tactical_highlights.py` | 按清单导出带音频的技战术片段 |
+| `workflows/visualization/make_tactical_report_video.py` | 在证据发生时插入中文分析，并保留结尾总结 |
 | `tactical_analysis/analyzers/numerical_superiority.py` | 持续动态多打少、推进和后续结果 |
 | `tactical_analysis/analyzers/defensive_gaps.py` | 三线间距、球周密度和通道条件的防守空档 |
 
@@ -45,7 +45,7 @@
 | 优先级 | 技战术方向 | 实现模块 | 当前输出 |
 | --- | --- | --- | --- |
 | P0 | 事件时间轴 | `event_timeline` | 触球、接球、传球、带球、射门、角球和球权转换候选 |
-| P0 | 自动高光剪辑 | `reporting.py`、`export_tactical_highlights.py` | 多标签高光清单和 MP4 片段；同一时刻的射门、进攻链与防守风险合并而非重复裁剪 |
+| P0 | 自动高光剪辑 | `reporting.py`、`workflows/visualization/export_tactical_highlights.py` | 多标签高光清单和 MP4 片段；同一时刻的射门、进攻链与防守风险合并而非重复裁剪 |
 | P0 | 射门结构分析 | `event_timeline` | 禁区内外、距离档、射门通道、防守压力、角度及机会质量代理 |
 | P0 | 区域统计 | `spatial_structure` | 三区、边中路占用和球队/球员平均站位 |
 | P0 | 比赛摘要报告 | `reporting.py` | P0-P3 球队级摘要、完整 JSON、中文 Markdown 和 CSV |

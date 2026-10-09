@@ -1,6 +1,6 @@
 import unittest
 
-from analyze_projection_folder import sanitize_vision_result, vision_sample_times
+from workflows.projection.analyze_projection_folder import sanitize_vision_result, vision_sample_times
 
 
 class VisionResultTests(unittest.TestCase):

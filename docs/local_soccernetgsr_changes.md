@@ -27,7 +27,7 @@
 
 ## 新增文件
 
-### `run_local_video_gsr_visualization.py`
+### `workflows/gsr/run_local_video_gsr_visualization.py`
 
 本地视频端到端运行脚本，用于把普通 `.mp4` 输入转换成 SoccerNetGSR 项目所需的数据目录，并串联原项目主要流程：
 
@@ -41,11 +41,11 @@
 
 新增 `--recall-optimized` 模式，用于降低检测/跟踪阈值、提高球员召回。
 
-### `visualize_local_result.py`
+### `workflows/visualization/visualize_local_result.py`
 
 本地单视频可视化包装脚本。它调用原项目的 `visualize_prediction_results.visualize_predictions`，但只针对一个本地视频目录运行，避免每次都手动构造路径。
 
-### `refine_referee_roles.py`
+### `workflows/identity/refine_referee_roles.py`
 
 独立的裁判后处理脚本。后续裁判优化从这个文件开始，不再直接改当前稳定脚本。
 
@@ -71,7 +71,7 @@
 
 ## 修改过的原项目文件
 
-### `write_json_file_team.py`
+### `workflows/gsr/write_json_file_team.py`
 
 主要新增足球后处理逻辑：
 
@@ -81,7 +81,7 @@
 - 被拒绝的 Ball 候选会回退为最可信的非 Ball 角色，或标为 `other`
 - CLI 只处理 `img1` 目录，避免重复扫描可视化目录
 
-### `visualize_prediction_results.py`
+### `workflows/visualization/visualize_prediction_results.py`
 
 主要新增可视化配置、足球显示优化和裁判显示优化：
 
@@ -125,10 +125,10 @@ VISUALIZATION:
 
 ## 裁判后处理参数
 
-`refine_referee_roles.py` 的默认参数如下：
+`workflows/identity/refine_referee_roles.py` 的默认参数如下：
 
 ```bash
-python refine_referee_roles.py \
+python -m workflows.identity.refine_referee_roles \
   --official-colors red,orange,yellow,neon\ yellow \
   --min-frames 30 \
   --min-referee-votes 8 \

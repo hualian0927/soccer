@@ -5,11 +5,11 @@ from unittest.mock import Mock
 
 import numpy as np
 
-from build_layered_tactical_review import build_bundle
+from workflows.review.build_layered_tactical_review import build_bundle
 from tactical_analysis.analyzers.ball_out import BallOutOfPlayAnalyzer
 from tactical_analysis.analyzers.goalkeeper import image_ball_distance
 from tactical_analysis.models import AnalysisContext, FrameState, Observation
-from make_tactical_visualization_video import Detection, draw_frame
+from workflows.visualization.make_tactical_visualization_video import Detection, draw_frame
 
 
 class LayeredReviewTest(unittest.TestCase):

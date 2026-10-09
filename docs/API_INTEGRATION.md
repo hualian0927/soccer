@@ -6,12 +6,12 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `run_openai_tactical_review.py` | 事件审核、分段扫描、边界补审、组织/空间复核与网页报告 |
+| `workflows/review/run_openai_tactical_review.py` | 事件审核、分段扫描、边界补审、组织/空间复核与网页报告 |
 | `tactical_analysis/openai_review.py` | Responses 请求、base64 图片、结构化约束、SSE 解析、重试、使用记录、响应校验 |
-| `review_tactical_candidates_with_vision.py` | 旧 Chat Completions 单事件实验接口，抽帧/门将裁剪/证据保存也供新版复用 |
-| `build_layered_tactical_review.py` | 默认无 API 的分层候选包，`--review-api` 启用旧路径 |
-| `prepare_assistant_review_sheets.py` / `prepare_layered_review_evidence.py` | 准备直接看图审核材料，不等于自动完成审核 |
-| `build_assistant_review_version.py` / `build_reviewed_tactical_layers.py` | 将已有复核记录整理为网页版本 |
+| `workflows/review/review_tactical_candidates_with_vision.py` | 旧 Chat Completions 单事件实验接口，抽帧/门将裁剪/证据保存也供新版复用 |
+| `workflows/review/build_layered_tactical_review.py` | 默认无 API 的分层候选包，`--review-api` 启用旧路径 |
+| `workflows/review/prepare_assistant_review_sheets.py` / `workflows/review/prepare_layered_review_evidence.py` | 准备直接看图审核材料，不等于自动完成审核 |
+| `workflows/review/build_assistant_review_version.py` / `workflows/review/build_reviewed_tactical_layers.py` | 将已有复核记录整理为网页版本 |
 | `web_preview/server/local-analysis.js` | 根据后端环境变量选择入口并运行 Python |
 
 `API/football_inference/api.py` 是 RF-DETR 足球检测接口，与外部大模型调用不是一回事。
@@ -40,7 +40,7 @@ export OPENAI_API_KEY
 现有默认常量 `gpt-5.6-sol` 用于保留历史实验，不保证账号可用性、价格或效果。当前只内置此名字的历史估算计价，未实时同步价格，不是严格账单上限。
 
 ```bash
-python run_openai_tactical_review.py \
+python -m workflows.review.run_openai_tactical_review \
   --video soccer_input_dataset/input_match.mp4 \
   --report-json soccer_input_dataset/outputs/local-match/report/tactical_analysis_report.json \
   --output-dir soccer_input_dataset/outputs/local-match/visual_review \
@@ -61,7 +61,7 @@ export RELAY_API_KEY
 export RELAY_BASE_URL='https://your-provider.example/v1'
 export RELAY_MODEL='replace-with-your-available-vision-model'
 
-python run_openai_tactical_review.py \
+python -m workflows.review.run_openai_tactical_review \
   --video soccer_input_dataset/input_match.mp4 \
   --report-json soccer_input_dataset/outputs/local-match/report/tactical_analysis_report.json \
   --output-dir soccer_input_dataset/outputs/local-match/relay_review \

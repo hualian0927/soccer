@@ -7,12 +7,12 @@
 | 用途 | 需要 | 不需要 |
 | --- | --- | --- |
 | 网页 UI 开发 | Node.js、npm、`web_preview/package-lock.json` | Python、权重、API 密钥 |
-| 已有 GSR JSON / 合成 Demo 分析 | Python 3.10、`requirements-analysis.txt` | GPU、深度模型、API |
+| 已有 GSR JSON / 合成 Demo 分析 | Python 3.10、`requirements/analysis.txt` | GPU、深度模型、API |
 | 完整视频检测与网页上传处理 | `sports` Conda、FFmpeg、PyTorch、`requirements.txt`、Torchreid、YOLOX 扩展及权重 | 外部模型 API 可选 |
 | 个人动作与临时编号 | 完整环境、Ultralytics、检测/姿态权重 | 必须拥有 API 不是前提 |
 | RF-DETR + TCN 足球检测 | `API/requirement.txt`、其两份专用权重 | 这不是聊天大模型 API |
 | 外部视觉复核 | 图像抽帧环境、jsonschema、网络、支持图片的模型权限 | 不需要额外安装 OpenAI SDK，本项目用标准库 HTTP |
-| LLaMA 球衣识别 | 额外 `requirements-llama.txt` 与相关权重 | 默认 CLIP 路径不需要 |
+| LLaMA 球衣识别 | 额外 `requirements/llama.txt` 与相关权重 | 默认 CLIP 路径不需要 |
 
 ## 2. 开发机观察值与兼容边界
 
@@ -56,13 +56,13 @@ python -m pip check
 若只测试结构化分析：
 
 ```bash
-python -m pip install -r requirements-analysis.txt
+python -m pip install -r requirements/analysis.txt
 python examples/structured_demo.py
 ```
 
 ## 4. 模型与字体
 
-代码不包含权重。`python download_properties.py` 可尝试获取原仓库权重，下载链接、访问权限与上游可用性由提供方决定。请核对实际落盘文件：
+代码不包含权重。`python -m workflows.data.download_properties` 可尝试获取原仓库权重，下载链接、访问权限与上游可用性由提供方决定。请核对实际落盘文件：
 
 | 文件/资源 | 用途 |
 | --- | --- |
@@ -71,7 +71,7 @@ python examples/structured_demo.py
 | `checkpoints/SoccernetGSR_EfficientNet_Best.pth` | 场地关键点与映射 |
 | `checkpoints/CLIP_Jersey.pth` | CLIP 球衣相关识别 |
 | `checkpoints/osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth` | 原配置可能用到的 OSNet 预训练资源 |
-| `yolov8n.pt`、`yolov8n-pose.pt` 等脚本指定文件 | 补检、临时编号与姿态分支 |
+| `checkpoints/yolov8n.pt`、`checkpoints/yolov8n-pose.pt` 等脚本指定文件 | 补检、临时编号与姿态分支 |
 | `API/model/rfdetr_ball_best_ema.pth` | RF-DETR 足球检测 |
 | `API/model/tcn_ball_completion_best.pt` | TCN 补全轨迹 |
 | `assets/fonts/NotoSansCJKsc-Regular.otf` | 中文视频/图像字体，仓库已有资源 |
@@ -109,7 +109,9 @@ Python 与现有服务读取进程环境，不自动读取此文件。需在同�
 
 ## 7. 常见故障
 
-交付验证记录（2026-10-09）：从 Git 暂存区导出干净代码快照，在独立 Python 3.10 venv 中仅安装 `requirements-analysis.txt`，19 个分析器的合成 Demo 成功。干净快照使用既有 sports 依赖运行 98 项测试全部通过；前端 2 项逻辑测试、构建及桌面/手机个人片段导出回归通过。完整 GPU 推理环境未在全新机器重装，未做付费 API 在线验证。
+交付验证记录（2026-10-09）：从 Git 暂存区导出干净代码快照，在独立 Python 3.10 venv 中仅安装 `requirements/analysis.txt`，19 个分析器的合成 Demo 成功。干净快照使用既有 sports 依赖运行 98 项测试全部通过；前端 2 项逻辑测试、构建及桌面/手机个人片段导出回归通过。完整 GPU 推理环境未在全新机器重装，未做付费 API 在线验证。
+
+目录整理后复测（2026-10-09）：根目录脚本已迁入 `workflows/`，用 `python -m workflows.分类.脚本名` 调用。含新增路径检查的 103 项 Python 测试在工作区及干净快照均通过；轻量环境合成 Demo、YOLOX 数据预处理导入、前端逻辑测试与构建、桌面/手机个人导出和阵型播放均通过。本轮未重跑整场 GPU 推理或付费 API，历史素材路径保持不变。
 
 - `conda: not found`：从初始化过 Conda 的终端启动网页，确认 `conda run -n sports python --version`。
 - `torchreid`/`yolox._C` 不可导入：先装 PyTorch、编译工具和 Cython，再执行上述源安装命令。

@@ -6,8 +6,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from analyze_projection_with_ball import boundary_side, center_restart_candidates, outside_candidates
-from ball_detection_adapter import merge_ball_trajectory
+from workflows.projection.analyze_projection_with_ball import boundary_side, center_restart_candidates, outside_candidates
+from workflows.gsr.ball_detection_adapter import merge_ball_trajectory
 
 
 class OutOfBoundsEvidenceTests(unittest.TestCase):

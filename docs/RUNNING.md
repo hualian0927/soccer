@@ -5,7 +5,7 @@
 ## 1. 无权重冒烟 Demo
 
 ```bash
-python -m pip install -r requirements-analysis.txt
+python -m pip install -r requirements/analysis.txt
 python examples/structured_demo.py
 ```
 
@@ -15,7 +15,7 @@ python examples/structured_demo.py
 
 ```bash
 conda activate sports
-python run_local_video_gsr_visualization.py \
+python -m workflows.gsr.run_local_video_gsr_visualization \
   --input-video soccer_input_dataset/input_match.mp4 \
   --video-name SNGS-999 --max-frames 0 \
   --work-root soccer_input_dataset/outputs/local-match/gsr_work \
@@ -33,7 +33,7 @@ soccer_input_dataset/outputs/local-match/gsr_work/SoccerNetGS/test/SNGS-999/SNGS
 可选身份复核：
 
 ```bash
-python refine_gsr_video_identities.py \
+python -m workflows.identity.refine_gsr_video_identities \
   --video soccer_input_dataset/input_match.mp4 \
   --json-path soccer_input_dataset/outputs/local-match/gsr_work/SoccerNetGS/test/SNGS-999/SNGS-999.json \
   --output-json soccer_input_dataset/outputs/local-match/identities.json \
@@ -43,17 +43,17 @@ python refine_gsr_video_identities.py \
 ## 3. 分析与显示
 
 ```bash
-python run_tactical_analysis.py \
+python -m workflows.tactical.run_tactical_analysis \
   --json-path soccer_input_dataset/outputs/local-match/identities.json \
   --input-video soccer_input_dataset/input_match.mp4 \
   --output-dir soccer_input_dataset/outputs/local-match/report
 
-python make_tactical_visualization_video.py \
+python -m workflows.visualization.make_tactical_visualization_video \
   --input-video soccer_input_dataset/input_match.mp4 \
   --json-path soccer_input_dataset/outputs/local-match/identities.json \
   --output-video soccer_input_dataset/outputs/local-match/boxes.mp4 --boxes-only
 
-python build_layered_tactical_review.py \
+python -m workflows.review.build_layered_tactical_review \
   --video soccer_input_dataset/input_match.mp4 \
   --report-json soccer_input_dataset/outputs/local-match/report/tactical_analysis_report.json \
   --output-dir soccer_input_dataset/outputs/local-match/layered
@@ -66,23 +66,23 @@ python build_layered_tactical_review.py \
 定位球单独切片：
 
 ```bash
-python export_set_piece_clips.py \
+python -m workflows.visualization.export_set_piece_clips \
   --input-video soccer_input_dataset/input_match.mp4 \
   --manifest soccer_input_dataset/outputs/local-match/report/set_piece_manifest.csv \
   --output-dir soccer_input_dataset/outputs/local-match/set_piece_clips
 ```
 
-高光和解释成片：`export_tactical_highlights.py`、`make_tactical_report_video.py --interleave-chapters`。请用 `--help` 查看各脚本必选参数；图像/视频文件不提交 Git。
+高光和解释成片：`workflows/visualization/export_tactical_highlights.py`、`workflows/visualization/make_tactical_report_video.py --interleave-chapters`。请用 `--help` 查看各脚本必选参数；图像/视频文件不提交 Git。
 
 ## 4. 编号与个人复盘
 
 ```bash
-python build_player_focus_video.py \
+python -m workflows.players.build_player_focus_video \
   --video soccer_input_dataset/input_match.mp4 \
   --gsr-json soccer_input_dataset/outputs/local-match/identities.json \
   --output-dir soccer_input_dataset/outputs/local-match/player_focus
 
-python export_player_focus.py \
+python -m workflows.players.export_player_focus \
   --tracking-json soccer_input_dataset/outputs/local-match/player_focus/player_tracks.json \
   --player-id 1 --start 10 --end 15 \
   --output-dir soccer_input_dataset/outputs/local-match/player_clip
@@ -93,7 +93,7 @@ python export_player_focus.py \
 ## 5. 阵型可视化
 
 ```bash
-python build_formation_evidence.py \
+python -m workflows.visualization.build_formation_evidence \
   --video soccer_input_dataset/input_match.mp4 \
   --gsr-json soccer_input_dataset/outputs/local-match/identities.json \
   --bundle soccer_input_dataset/outputs/local-match/layered/layered_analysis.json \
@@ -124,12 +124,12 @@ npm run dev -- --host 127.0.0.1 --port 4173
 | --- | --- |
 | `API/run.py --input VIDEO --output-dir DIR` | RF-DETR 检测 + TCN 足球补全 |
 | `API/detect.py` / `API/complete.py` | 两阶段分别执行，完整参数见 API/README.md |
-| `analyze_full_pitch_projection.py --csv ... --geometry ... --video ... --output ...` | 已有全场位置数据的空间分析 |
-| `analyze_projection_folder.py --folder ... --output-dir ...` | 特定格式的双机位目录分析及报告 |
-| `analyze_projection_with_ball.py` / `render_projection_l1_video.py` | 融合球轨迹与事件展示 |
-| `make_individual_technique_analysis_video.py` | 近景姿态、射门与门将动作候选 |
-| `run_match_analysis_workflow.py` | 长比赛扫描与远近景路由 |
-| `run_fast_long_video_gsr.py` | 长视频替代快速流程，不等同于原基线所有步骤 |
+| `workflows/projection/analyze_full_pitch_projection.py --csv ... --geometry ... --video ... --output ...` | 已有全场位置数据的空间分析 |
+| `workflows/projection/analyze_projection_folder.py --folder ... --output-dir ...` | 特定格式的双机位目录分析及报告 |
+| `workflows/projection/analyze_projection_with_ball.py` / `workflows/visualization/render_projection_l1_video.py` | 融合球轨迹与事件展示 |
+| `workflows/visualization/make_individual_technique_analysis_video.py` | 近景姿态、射门与门将动作候选 |
+| `workflows/tactical/run_match_analysis_workflow.py` | 长比赛扫描与远近景路由 |
+| `workflows/gsr/run_fast_long_video_gsr.py` | 长视频替代快速流程，不等同于原基线所有步骤 |
 
 这些输入契约不同，请先看脚本 `--help` 与相应 docs。API 目录是足球检测算法包，外接语言/视觉模型代码在根目录与 `tactical_analysis/openai_review.py`。
 

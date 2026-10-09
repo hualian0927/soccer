@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from make_vision_review_video import clock_time, load_reviews, review_display_time, review_style, wrap
+from workflows.visualization.make_vision_review_video import clock_time, load_reviews, review_display_time, review_style, wrap
 from PIL import Image, ImageDraw
-from make_vision_review_video import font
+from workflows.visualization.make_vision_review_video import font
 
 
 class VisionReviewVideoTest(unittest.TestCase):

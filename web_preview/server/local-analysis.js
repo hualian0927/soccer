@@ -477,7 +477,7 @@ async function loadDemoResult(resultId, repoRoot) {
     const videoPath = path.join(repoRoot, "二维分析/分析视频2.mp4");
     const reportPath = path.join(repoRoot, "二维分析/分析视频2_技战术结果/tactical_analysis_report.json");
     if (!(await fileExists(videoPath)) || !(await fileExists(reportPath))) {
-      throw new Error("双机位足球分析结果不完整，请先运行 analyze_projection_with_ball.py");
+      throw new Error("双机位足球分析结果不完整，请先运行 workflows/projection/analyze_projection_with_ball.py");
     }
     const [report, videoInfo] = await Promise.all([
       readFile(reportPath, "utf8").then(JSON.parse),
@@ -499,7 +499,7 @@ async function loadDemoResult(resultId, repoRoot) {
     const videoPath = path.join(repoRoot, "二维分析/分析视频.mp4");
     const reportPath = path.join(repoRoot, "二维分析/spatial_analysis_report.json");
     if (!(await fileExists(videoPath)) || !(await fileExists(reportPath))) {
-      throw new Error("二维空间分析结果不完整，请先运行 analyze_full_pitch_projection.py");
+      throw new Error("二维空间分析结果不完整，请先运行 workflows/projection/analyze_full_pitch_projection.py");
     }
     const [report, videoInfo] = await Promise.all([
       readFile(reportPath, "utf8").then(JSON.parse),
@@ -590,7 +590,7 @@ async function processJob(job, { repoRoot }) {
     job.stage = "正在执行球员、足球检测跟踪与球场映射";
     job.progress = 15;
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, "run_local_video_gsr_visualization.py"),
+      "run", "-n", "sports", "python", "-m", "workflows.gsr.run_local_video_gsr_visualization",
       "--input-video", job.inputPath,
       "--video-name", videoName,
       "--max-frames", "0",
@@ -608,14 +608,14 @@ async function processJob(job, { repoRoot }) {
     job.stage = "正在复核球衣与门将轨迹身份";
     job.progress = 62;
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, "refine_gsr_video_identities.py"),
+      "run", "-n", "sports", "python", "-m", "workflows.identity.refine_gsr_video_identities",
       "--video", job.inputPath, "--json-path", jsonPath, "--output-json", identityPath,
     ], repoRoot, logPath);
 
     job.stage = "正在生成与本地项目一致的技战术可视化";
     job.progress = 66;
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, "make_tactical_visualization_video.py"),
+      "run", "-n", "sports", "python", "-m", "workflows.visualization.make_tactical_visualization_video",
       "--input-video", job.inputPath,
       "--json-path", identityPath,
       "--output-video", tacticalVideo,
@@ -629,7 +629,7 @@ async function processJob(job, { repoRoot }) {
     job.stage = "正在生成事件时间轴与定位球分类";
     job.progress = 80;
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, "run_tactical_analysis.py"),
+      "run", "-n", "sports", "python", "-m", "workflows.tactical.run_tactical_analysis",
       "--json-path", identityPath,
       "--input-video", job.inputPath,
       "--output-dir", reportDirectory,
@@ -640,7 +640,7 @@ async function processJob(job, { repoRoot }) {
     job.progress = 88;
     const layeredDirectory = path.join(job.directory, "layered_review");
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, useOpenAI ? "run_openai_tactical_review.py" : "build_layered_tactical_review.py"),
+      "run", "-n", "sports", "python", "-m", useOpenAI ? "workflows.review.run_openai_tactical_review" : "workflows.review.build_layered_tactical_review",
       "--video", job.inputPath,
       "--report-json", path.join(reportDirectory, "tactical_analysis_report.json"),
       "--output-dir", layeredDirectory,
@@ -669,13 +669,13 @@ async function processJob(job, { repoRoot }) {
     job.stage = "正在生成可选球员编号轨迹";
     job.progress = 96;
     const playerDirectory = path.join(job.directory,"player_focus");
-    await runProcess(job,"conda",["run","-n","sports","python",path.join(repoRoot,"build_player_focus_video.py"),
+    await runProcess(job,"conda",["run","-n","sports","python","-m", "workflows.players.build_player_focus_video",
       "--video",job.inputPath,"--gsr-json",identityPath,"--output-dir",playerDirectory],repoRoot,logPath);
     const trackingFile = path.join(playerDirectory,"player_tracks.json");
     job.stage = "正在生成可选阵型分布证据";
     job.progress = 98;
     const formationDirectory = path.join(job.directory,"formation_evidence");
-    await runProcess(job,"conda",["run","-n","sports","python",path.join(repoRoot,"build_formation_evidence.py"),
+    await runProcess(job,"conda",["run","-n","sports","python","-m", "workflows.visualization.build_formation_evidence",
       "--video",job.inputPath,"--gsr-json",identityPath,"--bundle",path.join(layeredDirectory,"layered_analysis.json"),
       "--tracking-json",trackingFile,"--output-dir",formationDirectory],repoRoot,logPath);
     job.result = await loadLayeredResult(webVideo,path.join(formationDirectory,"layered_analysis.json"),false,repoRoot);

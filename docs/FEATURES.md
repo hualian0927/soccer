@@ -6,11 +6,11 @@
 
 | 功能 | 当前方法/代码 | 边界 |
 | --- | --- | --- |
-| 人/球检测跟踪 | YOLOX、DeepEIoU、OSNet，`inference_soccernetGSR.py` | 遮挡、低清、切镜会丢失/换 ID |
-| 球场二维映射 | `kpts.py`，关键点/线与场地几何 | 飞行中的足球不在地面，映射不等于三维轨迹 |
+| 人/球检测跟踪 | YOLOX、DeepEIoU、OSNet，`workflows/gsr/inference_soccernetGSR.py` | 遮挡、低清、切镜会丢失/换 ID |
+| 球场二维映射 | `workflows/gsr/kpts.py`，关键点/线与场地几何 | 飞行中的足球不在地面，映射不等于三维轨迹 |
 | 队伍/裁判/门将 | 球衣上身颜色、轨迹投票、CLIP/身份复核 | 蓝白、号码、阴影仍可能混淆 |
 | 球召回补强 | 大小/运动/光流约束、Ultralytics 补检 | 球员/广告误检仍需处理 |
-| 替代球检测 | `API/` RF-DETR + Global SAHI + TCN，`ball_detection_adapter.py` 适配 | 补全点不等同于真实检测；专用权重另备 |
+| 替代球检测 | `API/` RF-DETR + Global SAHI + TCN，`workflows/gsr/ball_detection_adapter.py` 适配 | 补全点不等同于真实检测；专用权重另备 |
 
 ## 19 个统一分析器
 
@@ -54,12 +54,12 @@
 
 | 功能 | 实现 | 限制 |
 | --- | --- | --- |
-| 阵型可视化 | `build_formation_evidence.py` 生成原图/框线图/短片，点击才显示 | 不补画外球员，几何分组不能当整场固定阵型 |
+| 阵型可视化 | `workflows/visualization/build_formation_evidence.py` 生成原图/框线图/短片，点击才显示 | 不补画外球员，几何分组不能当整场固定阵型 |
 | 球员编号 | BoT-SORT、颜色约束、切镜隔离、网页可关闭编号 | 不是球衣号码，不承诺跨镜头身份；遮挡仍会换号 |
 | 个人片段 | 选编号和最多 30 秒同镜头区间，导出视频、证据、统计 | 图像位移不是米制速度；新片段语义结论需复核 |
 | 近景个人技术 | 姿态窗口、脚/头球候选、射门关键帧回看、门将分支、中文讲解 | 无法直接测肌肉发力、真实力量；不是教练级评分 |
-| 远近景工作流 | `run_match_analysis_workflow.py` 扫描、镜头路由 | 尚未完成跨多场长比赛验收 |
-| 双机位/俯视 | `analyze_projection_folder.py` 等结合位置 CSV、几何和视频，切换视图 | 需符合已有输入格式，不能把任意两个视频自动当同步标定输入 |
+| 远近景工作流 | `workflows/tactical/run_match_analysis_workflow.py` 扫描、镜头路由 | 尚未完成跨多场长比赛验收 |
+| 双机位/俯视 | `workflows/projection/analyze_projection_folder.py` 等结合位置 CSV、几何和视频，切换视图 | 需符合已有输入格式，不能把任意两个视频自动当同步标定输入 |
 | 视觉模型 | Responses/兼容接口多帧复核、动态补证、门将复审、结构化评语 | 抽帧仍可能漏关键动作，模型意见不是人工真值 |
 
 ## 未完成与不承诺

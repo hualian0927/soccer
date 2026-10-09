@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 
 from tactical_analysis.reviewed_layers import organization_candidates, reviewed_statistics, spatial_coverage
-from build_reviewed_tactical_layers import enrich_bundle
+from workflows.review.build_reviewed_tactical_layers import enrich_bundle
 
 
 def event(id, time, subtype="pass", team="right", category="传接带"):

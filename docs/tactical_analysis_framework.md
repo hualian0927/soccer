@@ -76,10 +76,10 @@ tactical_analysis/
 
 球队身份底座位于框架目录之外的推理层：
 
-- `jersey_color.py`：只截取上半身核心区域，使用中心加权 HSV 特征，并抑制检测框边缘的草地颜色。
-- `team_identity.py`：先按时间间隔和持续颜色变化把跨镜头复用 ID 切成身份一致的短轨迹，再对多帧颜色证据加权投票。
-- `tracklet_appearance.py`：使用足球域 CLIP 的 `color_embedding` 聚合短轨迹外观；从同场高置信蓝/白球员建立原型，只复核低置信轨迹并补全待确认身份。
-- `refine_team_identities.py`：串联逐帧球衣估计、短轨迹切分、颜色投票、CLIP 原型复核和每帧最多 3 名裁判约束。
+- `workflows/identity/jersey_color.py`：只截取上半身核心区域，使用中心加权 HSV 特征，并抑制检测框边缘的草地颜色。
+- `workflows/identity/team_identity.py`：先按时间间隔和持续颜色变化把跨镜头复用 ID 切成身份一致的短轨迹，再对多帧颜色证据加权投票。
+- `workflows/identity/tracklet_appearance.py`：使用足球域 CLIP 的 `color_embedding` 聚合短轨迹外观；从同场高置信蓝/白球员建立原型，只复核低置信轨迹并补全待确认身份。
+- `workflows/identity/refine_team_identities.py`：串联逐帧球衣估计、短轨迹切分、颜色投票、CLIP 原型复核和每帧最多 3 名裁判约束。
 - `team_identity_<video>.json`：记录每条轨迹的身份、置信度、证据帧数和颜色得分，便于定位误判。
 
 当蓝/白等颜色证据达不到置信度与差值门槛时，系统使用同场 CLIP 原型进行二次判断；仍无充分证据的轨迹保留为橙色“待确认”，不再根据当时位于球场左侧或右侧强行归队。配置了球衣先验时，JSON 内部固定 `team0/left=蓝队`、`team1/right=白队`，门将和“误判为球后恢复成人物”的分支也使用同一映射，不按半场位置翻转球队。
@@ -107,12 +107,12 @@ tactical_analysis/
 
 现有视频脚本保持独立并继续使用：
 
-- `make_tactical_visualization_video.py`：远景战术可视化；右上角简洁战术板只保留标准球场、蓝白两队、裁判和足球点位，不绘制粒子、热力、拖尾、威胁圆或球队外接框。
-- `make_tactical_report_video.py`：按证据原时间穿插中文暂停分析，暂停页使用干净原始帧，结尾继续保留总结；阵型章节直接在真实代表帧绘制站位线。
-- `make_formation_analysis_video.py`：阵型线与关键帧暂停。
-- `make_offensive_analysis_video.py`：射门、传球、推进和定位球代理指标。
-- `make_individual_technique_analysis_video.py`：近景射门和门将姿态分析。
-- `run_match_analysis_workflow.py`：完整比赛远近景扫描与片段路由。
+- `workflows/visualization/make_tactical_visualization_video.py`：远景战术可视化；右上角简洁战术板只保留标准球场、蓝白两队、裁判和足球点位，不绘制粒子、热力、拖尾、威胁圆或球队外接框。
+- `workflows/visualization/make_tactical_report_video.py`：按证据原时间穿插中文暂停分析，暂停页使用干净原始帧，结尾继续保留总结；阵型章节直接在真实代表帧绘制站位线。
+- `workflows/visualization/make_formation_analysis_video.py`：阵型线与关键帧暂停。
+- `workflows/visualization/make_offensive_analysis_video.py`：射门、传球、推进和定位球代理指标。
+- `workflows/visualization/make_individual_technique_analysis_video.py`：近景射门和门将姿态分析。
+- `workflows/tactical/run_match_analysis_workflow.py`：完整比赛远近景扫描与片段路由。
 
 ## 4. 运行方法
 
@@ -121,7 +121,7 @@ tactical_analysis/
 ```bash
 conda activate sports
 
-python run_tactical_analysis.py \
+python -m workflows.tactical.run_tactical_analysis \
   --json-path soccer_input_dataset/gsr_demo/SoccerNetGS/test/SNGS-1000/SNGS-1000.json \
   --input-video soccer_input_dataset/test_5min.mp4 \
   --output-dir soccer_input_dataset/outputs/tactical_framework_test_5min
@@ -130,7 +130,7 @@ python run_tactical_analysis.py \
 只运行指定模块：
 
 ```bash
-python run_tactical_analysis.py \
+python -m workflows.tactical.run_tactical_analysis \
   --json-path /path/to/result.json \
   --fps 25 \
   --analyzers data_quality,event_timeline,spatial_structure
@@ -150,7 +150,7 @@ data_quality -> event_timeline -> spatial_structure -> team_shape_engine
 已知球衣颜色时应显式传入，而不是让系统从整段视频的最高频颜色猜测球队：
 
 ```bash
-python run_local_video_gsr_visualization.py \
+python -m workflows.gsr.run_local_video_gsr_visualization \
   --input-video /path/to/match.mp4 \
   --team0-colors blue \
   --team1-colors white,red \
@@ -164,7 +164,7 @@ python run_local_video_gsr_visualization.py \
 查看可用分析器：
 
 ```bash
-python run_tactical_analysis.py --list-analyzers
+python -m workflows.tactical.run_tactical_analysis --list-analyzers
 ```
 
 输出包括：
@@ -178,7 +178,7 @@ python run_tactical_analysis.py --list-analyzers
 按高光清单导出片段：
 
 ```bash
-python export_tactical_highlights.py \
+python -m workflows.visualization.export_tactical_highlights \
   --input-video /path/to/match.mp4 \
   --manifest /path/to/highlight_manifest.csv \
   --output-dir /path/to/highlight_clips \
@@ -188,7 +188,7 @@ python export_tactical_highlights.py \
 生成按原时间穿插、并保留结尾总结的视频：
 
 ```bash
-python make_tactical_report_video.py \
+python -m workflows.visualization.make_tactical_report_video \
   --input-video /path/to/tactical_base.mp4 \
   --report-json /path/to/tactical_analysis_report.json \
   --output-video /path/to/tactical_review.mp4 \

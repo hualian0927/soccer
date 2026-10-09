@@ -122,10 +122,10 @@
 ### 5.1 代码
 
 - `tactical_analysis/`：17 个模块化分析器及统一数据契约。
-- `run_tactical_analysis.py`：统一分析入口。
-- `make_tactical_report_video.py`：在证据发生处插入中文分析页。
-- `export_tactical_highlights.py`：按照高光清单自动裁剪。
-- `run_match_analysis_workflow.py`：完整比赛远近景扫描与路由。
+- `workflows/tactical/run_tactical_analysis.py`：统一分析入口。
+- `workflows/visualization/make_tactical_report_video.py`：在证据发生处插入中文分析页。
+- `workflows/visualization/export_tactical_highlights.py`：按照高光清单自动裁剪。
+- `workflows/tactical/run_match_analysis_workflow.py`：完整比赛远近景扫描与路由。
 
 ### 5.2 输出格式
 

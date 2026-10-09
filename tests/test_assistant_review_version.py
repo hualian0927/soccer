@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from build_assistant_review_version import build_review_bundle
+from workflows.review.build_assistant_review_version import build_review_bundle
 
 
 class AssistantReviewVersionTest(unittest.TestCase):

@@ -133,12 +133,12 @@ class TacticalAnalysisPipeline:
                     "P3 advanced candidates": "以持续时序窗口组织动态多打少、高位逼抢、线间空档和攻防转换速度",
                 },
                 "compatible_renderers": [
-                    "make_tactical_visualization_video.py",
-                    "make_tactical_report_video.py",
-                    "make_formation_analysis_video.py",
-                    "make_offensive_analysis_video.py",
-                    "make_individual_technique_analysis_video.py",
-                    "export_tactical_highlights.py",
+                    "workflows/visualization/make_tactical_visualization_video.py",
+                    "workflows/visualization/make_tactical_report_video.py",
+                    "workflows/visualization/make_formation_analysis_video.py",
+                    "workflows/visualization/make_offensive_analysis_video.py",
+                    "workflows/visualization/make_individual_technique_analysis_video.py",
+                    "workflows/visualization/export_tactical_highlights.py",
                 ],
             },
             limitations_zh=[

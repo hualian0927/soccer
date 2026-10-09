@@ -57,9 +57,9 @@
 复算：
 
 ```bash
-conda run -n sports python analyze_projection_with_ball.py
-conda run -n sports python render_projection_l1_video.py --layout panorama
-conda run -n sports python render_projection_l1_video.py --layout focus
+conda run -n sports python -m workflows.projection.analyze_projection_with_ball
+conda run -n sports python -m workflows.visualization.render_projection_l1_video --layout panorama
+conda run -n sports python -m workflows.visualization.render_projection_l1_video --layout focus
 ```
 
 ## 4. 新足球检测后端
@@ -71,11 +71,11 @@ conda run -n sports python render_projection_l1_video.py --layout focus
   -> RF-DETR + SAHI 足球候选框
   -> TCN 补全未检出帧
   -> trajectory.jsonl
-  -> ball_detection_adapter.py 合并进 SoccerNetGSR JSON
+  -> workflows/gsr/ball_detection_adapter.py 合并进 SoccerNetGSR JSON
   -> 原可视化与技战术分析流程
 ```
 
-`run_local_video_gsr_visualization.py` 默认使用 `--ball-backend rfdetr-tcn`；旧版可用 `--ball-backend legacy`。有已计算轨迹时用 `--ball-trajectory PATH` 避免重复推理。`API/model/` 中两份权重来自用户提供的 `API.zip`，被 `.gitignore` 排除；在新机器上需自行放入，不能从 Git 仓库下载到权重。不要把 `API.zip` 或权重提交到公开仓库。
+`workflows/gsr/run_local_video_gsr_visualization.py` 默认使用 `--ball-backend rfdetr-tcn`；旧版可用 `--ball-backend legacy`。有已计算轨迹时用 `--ball-trajectory PATH` 避免重复推理。`API/model/` 中两份权重来自用户提供的 `API.zip`，被 `.gitignore` 排除；在新机器上需自行放入，不能从 Git 仓库下载到权重。不要把 `API.zip` 或权重提交到公开仓库。
 
 环境（已在本机 `sports` 中安装并完成短片实跑）：
 

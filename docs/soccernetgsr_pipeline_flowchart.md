@@ -10,15 +10,15 @@
 
 ```mermaid
 flowchart TD
-    A["输入视频<br/>soccer_input_dataset/test.mp4"] --> B["本地端到端脚本<br/>run_local_video_gsr_visualization.py"]
+    A["输入视频<br/>soccer_input_dataset/test.mp4"] --> B["本地端到端脚本<br/>workflows/gsr/run_local_video_gsr_visualization.py"]
 
     B --> C["抽帧<br/>img1/000001.jpg ..."]
     B --> D["生成本地配置<br/>config.local.yaml"]
 
-    C --> E["球场关键点检测<br/>kpts.py"]
+    C --> E["球场关键点检测<br/>workflows/gsr/kpts.py"]
     E --> F["单应性 / 球场映射<br/>每帧 .npy"]
 
-    C --> G["目标检测 + 跟踪 + 角色识别<br/>inference_soccernetGSR.py"]
+    C --> G["目标检测 + 跟踪 + 角色识别<br/>workflows/gsr/inference_soccernetGSR.py"]
     D --> G
     G --> H["初始跟踪结果<br/>interpolate_SNGS-999.txt"]
 
@@ -31,19 +31,19 @@ flowchart TD
     F --> M
     M --> N["球场坐标文件<br/>court_meter_SNGS-999.txt"]
 
-    L --> O["写 SoccerNetGS JSON<br/>write_json_file_team.py"]
+    L --> O["写 SoccerNetGS JSON<br/>workflows/gsr/write_json_file_team.py"]
     N --> O
     D --> O
 
     O --> P["足球后处理<br/>面积 / 宽高比 / 持续帧数 / Ball 投票 / 光流一致性"]
     P --> Q["稳定基础 JSON<br/>SNGS-999.json"]
 
-    Q --> R["裁判后处理<br/>refine_referee_roles.py"]
+    Q --> R["裁判后处理<br/>workflows/identity/refine_referee_roles.py"]
     L --> R
     R --> S["裁判修正版 JSON<br/>SNGS-999.referee_refined.json"]
     R --> T["裁判识别报告<br/>SNGS-999.referee_refined_report.md"]
 
-    S --> U["可视化绘制<br/>visualize_prediction_results.py"]
+    S --> U["可视化绘制<br/>workflows/visualization/visualize_prediction_results.py"]
     C --> U
     D --> U
     U --> V["逐帧可视化结果<br/>visualization_referee_magenta/.../*.jpg"]
@@ -81,7 +81,7 @@ flowchart LR
 | 阶段 | 关键文件 | 作用 |
 | --- | --- | --- |
 | 输入 | `soccer_input_dataset/test.mp4` | 原始足球视频 |
-| 本地适配 | `run_local_video_gsr_visualization.py` | 组织数据目录并串联全流程 |
+| 本地适配 | `workflows/gsr/run_local_video_gsr_visualization.py` | 组织数据目录并串联全流程 |
 | 抽帧结果 | `soccer_input_dataset/gsr_demo/SoccerNetGS/test/SNGS-999/img1/` | 后续模型逐帧处理的输入 |
 | 跟踪结果 | `interpolate_SNGS-999.txt`、`refined_SNGS-999.txt` | 图像坐标中的目标轨迹 |
 | 球场坐标 | `court_meter_SNGS-999.txt` | 目标在球场平面上的坐标 |

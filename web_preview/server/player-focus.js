@@ -27,7 +27,7 @@ export async function exportPlayerReview(body, root) {
     await new Promise((resolve,reject) => {
       const prefix = process.env.SPORTS_PYTHON ? [] : ["run","--no-capture-output","-n","sports","python"];
       const child = spawn(process.env.SPORTS_PYTHON || "conda",
-        [...prefix,path.join(root,"export_player_focus.py"),"--tracking-json",tracking,"--player-id",String(id),
+        [...prefix,"-m", "workflows.players.export_player_focus","--tracking-json",tracking,"--player-id",String(id),
           "--start",String(start),"--end",String(end),"--output-dir",output], {cwd:root,stdio:["ignore","ignore","pipe"]});
       let error = "";
       child.stderr.on("data",(chunk) => {error = (error + chunk.toString()).slice(-1500);});
