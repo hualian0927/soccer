@@ -165,9 +165,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 全部已提交文件的路径与简述见 [逐文件索引](docs/FILE_INDEX.md)。保留上游组件内部目录，避免破坏它们的安装和导入约定。
 
-### 本地资源目录（不上传）
 
-`checkpoints/` 保存模型（包括迁入的 `yolov8n.pt`、`yolov8n-pose.pt`）；`data/archives/` 保存原根目录 ZIP；`docs/local_research/` 保存个人调研 Markdown/PDF；`data/`、`soccer_input_dataset/`、`二维分析/`、`Sportec Open DFL/` 保存素材与结果；`sports-paper/` 保存论文；`web_preview/runtime/` 保存上传任务。已存在的素材目录不再移动，避免历史项目媒体路径失效。缓存不属于运行源码，不纳入 Git。
 
 ## 目录迁移后的调用方式
 
