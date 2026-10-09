@@ -1,0 +1,3 @@
+# Optional only: JERSEY_MODE=llama. Verify CUDA/torch compatibility first.
+unsloth
+unsloth_zoo

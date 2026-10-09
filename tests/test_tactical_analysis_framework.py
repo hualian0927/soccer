@@ -48,7 +48,7 @@ class TacticalAnalysisFrameworkTest(unittest.TestCase):
             )
             report = pipeline.run(json_path=json_path, fps=25.0)
             analyzer_names = {item.analyzer for item in report.analyzer_outputs}
-            self.assertEqual(len(report.analyzer_outputs), 18)
+            self.assertEqual(len(report.analyzer_outputs), 19)
             self.assertTrue(
                 {
                     "data_quality",
@@ -59,6 +59,7 @@ class TacticalAnalysisFrameworkTest(unittest.TestCase):
                     "formation_tendency",
                     "set_piece_delivery",
                     "goalkeeper_interventions",
+                    "ball_out_of_play",
                     "progression_analysis",
                     "attacking_chains",
                     "defensive_third_risk",

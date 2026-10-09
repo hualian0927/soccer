@@ -20,6 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "analyzers": [
             "data_quality",
             "event_timeline",
+            "ball_out_of_play",
             "defensive_interventions",
             "spatial_structure",
             "team_shape_engine",

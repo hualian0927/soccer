@@ -1,0 +1,3 @@
+# CPU trajectory analysis and report generation, without weights or API calls.
+numpy>=1.26,<3
+PyYAML>=6,<7

@@ -1,0 +1,12 @@
+{
+  "sourceVideo": "/home/lhl/ai_models/sports/soccer_input_dataset/test_5min.mp4",
+  "scope": "助手逐张查看代表帧，不是教练标注，也不代表整个短片逐帧核验",
+  "frames": [
+    {"time":210.5,"team":"left","decision":"visible_distribution","reason":"代表帧七名深蓝衣球员可见，仅展示局部分线，不确认完整阵型。"},
+    {"time":233.0,"team":"right","decision":"visible_distribution","reason":"代表帧框内为白衣球员，可以展示可见分线，不确认完整阵型。"},
+    {"time":179.5,"team":"right","decision":"visible_distribution","reason":"代表帧八名白衣球员可见，人数不全，仅展示局部站位。"},
+    {"time":155.5,"team":"right","decision":"rejected","reason":"中线附近的深色球衣球员被纳入白队连线。"},
+    {"time":279.0,"team":"right","decision":"rejected","reason":"右侧禁区附近的深色球衣球员被纳入白队连线。"},
+    {"time":3.0,"team":"right","decision":"rejected","reason":"定位球密集站位中有蓝白人物混入，不能作为同队阵型证据。"}
+  ]
+}

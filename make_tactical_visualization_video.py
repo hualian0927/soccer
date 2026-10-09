@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
@@ -155,8 +156,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--snapshot-frame", type=int, default=301)
     parser.add_argument("--trail-frames", type=int, default=80)
+    parser.add_argument("--boxes-only", action="store_true", help="Keep the original image with detection boxes only.")
     parser.add_argument("--start-frame", type=int, default=1, help="1-based frame offset in the input video.")
     parser.add_argument("--max-frames", type=int, default=0, help="Use 0 for the full input video.")
+    parser.add_argument(
+        "--render-stride",
+        type=int,
+        default=1,
+        help="Render every Nth source frame and reduce output FPS by the same factor, preserving duration.",
+    )
     parser.add_argument("--yolo-fallback", action="store_true", help="Draw extra close-up boxes when GSR has few boxes.")
     parser.add_argument("--fallback-backend", choices=["yolox", "ultralytics"], default="yolox")
     parser.add_argument("--yolox-exp", default="exp/yolox_x_soccernet.py")
@@ -164,6 +172,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yolo-model", default="yolov8n.pt")
     parser.add_argument("--fallback-min-boxes", type=int, default=4)
     parser.add_argument("--fallback-conf", type=float, default=0.25)
+    parser.add_argument(
+        "--interpolate-sparse-max-gap",
+        type=int,
+        default=0,
+        help="Linearly interpolate matching tracks when sparse JSON keyframes are at most N frames apart.",
+    )
     parser.add_argument("--team0-label", default="蓝队", help="Display label for JSON team 'left'.")
     parser.add_argument("--team1-label", default="白队", help="Display label for JSON team 'right'.")
     parser.add_argument("--team0-display-color", choices=sorted(DISPLAY_COLORS), default="blue")
@@ -208,6 +222,74 @@ def load_by_frame(json_path: Path) -> dict[int, list[Detection]]:
         )
         by_frame[det.frame].append(det)
     return by_frame
+
+
+def interpolate_detections(
+    previous: list[Detection],
+    following: list[Detection],
+    frame: int,
+    previous_frame: int,
+    following_frame: int,
+) -> list[Detection]:
+    ratio = (frame - previous_frame) / max(1, following_frame - previous_frame)
+    following_by_track = {(det.track_id, det.role): det for det in following}
+    result: list[Detection] = []
+    for left in previous:
+        right = following_by_track.get((left.track_id, left.role))
+        if right is None:
+            continue
+        bbox = None
+        if left.bbox and right.bbox:
+            bbox = {
+                key: float(left.bbox.get(key, 0.0)) * (1.0 - ratio) + float(right.bbox.get(key, 0.0)) * ratio
+                for key in ("x", "y", "w", "h")
+            }
+        pitch_x = None
+        pitch_y = None
+        if left.pitch_x is not None and right.pitch_x is not None:
+            pitch_x = float(left.pitch_x) * (1.0 - ratio) + float(right.pitch_x) * ratio
+        if left.pitch_y is not None and right.pitch_y is not None:
+            pitch_y = float(left.pitch_y) * (1.0 - ratio) + float(right.pitch_y) * ratio
+        result.append(
+            Detection(
+                frame=frame,
+                track_id=left.track_id,
+                role=left.role,
+                team=left.team if left.team == right.team else right.team,
+                bbox=bbox,
+                pitch_x=pitch_x,
+                pitch_y=pitch_y,
+            )
+        )
+    return result
+
+
+class DetectionTimeline:
+    def __init__(self, by_frame: dict[int, list[Detection]], maximum_gap: int = 0):
+        self.by_frame = by_frame
+        self.frames = sorted(by_frame)
+        self.maximum_gap = max(0, maximum_gap)
+
+    def at(self, frame: int) -> list[Detection]:
+        exact = self.by_frame.get(frame)
+        if exact is not None:
+            return exact
+        if self.maximum_gap <= 0 or not self.frames:
+            return []
+        position = bisect.bisect_left(self.frames, frame)
+        if position <= 0 or position >= len(self.frames):
+            return []
+        previous_frame = self.frames[position - 1]
+        following_frame = self.frames[position]
+        if following_frame - previous_frame > self.maximum_gap:
+            return []
+        return interpolate_detections(
+            self.by_frame[previous_frame],
+            self.by_frame[following_frame],
+            frame,
+            previous_frame,
+            following_frame,
+        )
 
 
 def role_color(det: Detection) -> tuple[int, int, int]:
@@ -845,13 +927,16 @@ def draw_frame(
     ball_trail: deque[tuple[float, float]],
     state: TacticalState,
     fallback_detections: list[Detection] | None = None,
+    state_fps: float | None = None,
+    boxes_only: bool = False,
 ) -> np.ndarray:
     output = frame.copy()
     fallback_detections = fallback_detections or []
     ball = current_ball(detections)
     if ball is not None and ball.pitch_x is not None and ball.pitch_y is not None:
         ball_trail.append((ball.pitch_x, ball.pitch_y))
-    state.update(detections, ball, fps)
+    if not boxes_only:
+        state.update(detections, ball, state_fps or fps)
 
     for det in detections + fallback_detections:
         if not det.bbox:
@@ -867,6 +952,8 @@ def draw_frame(
         if det.team == "right":
             cv2.rectangle(output, (x - 1, y - 1), (x + w + 1, y + h + 1), COLORS["black"], thickness + 2)
         cv2.rectangle(output, (x, y), (x + w, y + h), color, thickness)
+        if boxes_only:
+            continue
         if det.role == "ball":
             label = "球"
         elif det.role == "fallback_ball":
@@ -881,6 +968,8 @@ def draw_frame(
             label = f"待确认 {det.track_id}"
         put_text(output, label, (x, max(16, y - 6)), scale=0.46, color=color, thickness=1)
 
+    if boxes_only:
+        return output
     pitch_w = max(280, output.shape[1] // 4)
     pitch_h = int(pitch_w * PITCH_WIDTH / PITCH_LENGTH)
     origin = (output.shape[1] - pitch_w - 22, 46)
@@ -900,10 +989,13 @@ def main() -> int:
     output_video = (PROJECT_ROOT / args.output_video).resolve()
 
     by_frame = load_by_frame(json_path)
+    timeline = DetectionTimeline(by_frame, args.interpolate_sparse_max_gap)
     cap = cv2.VideoCapture(str(input_video))
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open input video: {input_video}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    render_stride = max(1, args.render_stride)
+    output_fps = fps / render_stride
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -915,7 +1007,7 @@ def main() -> int:
     fallback_model = load_fallback_model(args)
 
     output_video.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    writer = cv2.VideoWriter(str(output_video), cv2.VideoWriter_fourcc(*"mp4v"), output_fps, (width, height))
     if not writer.isOpened():
         raise RuntimeError(f"Could not create output video: {output_video}")
 
@@ -924,11 +1016,15 @@ def main() -> int:
     tactical_state = TacticalState()
     frame_idx = 1
     wrote_snapshot = False
+    written = 0
     while frame_idx <= frame_limit:
         ok, frame = cap.read()
         if not ok:
             break
-        detections = by_frame.get(frame_idx, [])
+        if (frame_idx - 1) % render_stride != 0:
+            frame_idx += 1
+            continue
+        detections = timeline.at(frame_idx)
         player_like_count = sum(1 for det in detections if det.role not in {"ball"})
         fallback = []
         if args.yolo_fallback and player_like_count < args.fallback_min_boxes:
@@ -939,8 +1035,19 @@ def main() -> int:
                 detections,
                 args.fallback_conf,
             )
-        visualized = draw_frame(frame, frame_idx, fps, detections, ball_trail, tactical_state, fallback)
+        visualized = draw_frame(
+            frame,
+            frame_idx,
+            fps,
+            detections,
+            ball_trail,
+            tactical_state,
+            fallback,
+            state_fps=output_fps,
+            boxes_only=args.boxes_only,
+        )
         writer.write(visualized)
+        written += 1
         if frame_idx == args.snapshot_frame:
             cv2.imwrite(str(snapshot_path), visualized)
             wrote_snapshot = True
@@ -948,10 +1055,9 @@ def main() -> int:
 
     cap.release()
     writer.release()
-    written = frame_idx - 1
     if not wrote_snapshot and written > 0:
         print(f"Snapshot frame {args.snapshot_frame} was outside processed range.")
-    print(f"Wrote {written} frames at {fps:.2f} fps to {output_video}")
+    print(f"Wrote {written} frames at {output_fps:.2f} fps from {frame_idx - 1} source frames to {output_video}")
     if wrote_snapshot:
         print(f"Wrote snapshot to {snapshot_path}")
     return 0

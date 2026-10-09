@@ -31,7 +31,12 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { buildGeneratedEvents, demoAssets, demoEvents, demoProjects } from "./data";
+import { analysisLevelLabels, buildGeneratedEvents, demoAssets, demoEvents, demoProjects } from "./data";
+import SpatialAnalysisPage from "./SpatialAnalysisPage";
+import FormationEvidence from "./FormationEvidence";
+import { isAccepted, deriveStatistics, refreshOrganization } from "./review-state";
+import PlayerFocus from "./PlayerFocus";
+import { EventReviewDetail, LayeredAnalysisPanel, TacticalCommentary } from "./LayeredAnalysisPanel";
 
 
 const navItems = [
@@ -76,35 +81,45 @@ function readVideo(file) {
   return new Promise((resolve) => {
     const src = URL.createObjectURL(file);
     const video = document.createElement("video");
-    video.preload = "metadata";
+    video.preload = "auto";
     video.muted = true;
     video.playsInline = true;
     video.src = src;
     let settled = false;
+    let timeoutId = null;
 
     const finish = (duration, poster = "") => {
       if (settled) return;
       settled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
       resolve({ src, duration: Number.isFinite(duration) ? duration : 60, poster });
+    };
+
+    const capturePoster = (duration) => {
+      try {
+        if (!video.videoWidth || !video.videoHeight) return false;
+        const canvas = document.createElement("canvas");
+        canvas.width = 960;
+        canvas.height = 540;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        finish(duration, canvas.toDataURL("image/jpeg", 0.82));
+        return true;
+      } catch {
+        return false;
+      }
     };
 
     video.onerror = () => finish(60);
     video.onloadedmetadata = () => {
       const duration = Number.isFinite(video.duration) ? video.duration : 60;
-      video.currentTime = Math.min(Math.max(duration * 0.12, 0.1), Math.max(duration - 0.1, 0.1));
       video.onseeked = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = 960;
-          canvas.height = 540;
-          const context = canvas.getContext("2d");
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
-          finish(duration, canvas.toDataURL("image/jpeg", 0.82));
-        } catch {
-          finish(duration);
-        }
+        if (!capturePoster(duration)) finish(duration);
       };
-      window.setTimeout(() => finish(duration), 1800);
+      video.currentTime = Math.min(Math.max(duration * 0.12, 0.1), Math.max(duration - 0.1, 0.1));
+      timeoutId = window.setTimeout(() => {
+        if (!capturePoster(duration)) finish(duration);
+      }, 5000);
     };
   });
 }
@@ -245,7 +260,7 @@ function UploadZone({ onFiles }) {
       <span className="upload-icon"><UploadCloud size={28} /></span>
       <strong>上传比赛视频</strong>
       <span>拖拽文件到此处，或点击选择 MP4 / MOV / AVI</span>
-      <small>文件保存在本机，并提交 SoccerNetGSR 与 L1 事件分析流水线</small>
+      <small>素材保存在本机，进行目标跟踪与关键事件分析</small>
       <input
         ref={inputRef}
         type="file"
@@ -308,7 +323,9 @@ function AssetInspector({ asset, projects, onProjectChange, projectId, onAdd, on
       </button>
       <div className="inspector-note">
         <Sparkles size={17} />
-        <span>进入项目后可查看 L1 事件时间轴、定位球分类和独立证据片段。</span>
+        <span>{asset.tags?.includes("二维空间")
+          ? "进入项目后可查看二维球场站位、时段变化和视觉复核结果。"
+          : "事件时间轴、定位球分类与证据片段"}</span>
       </div>
     </aside>
   );
@@ -433,18 +450,18 @@ function ProjectPage({ project, assets, onBack, onAnalyze, onPending }) {
       <button className="back-button" onClick={onBack}><ArrowLeft size={18} />返回项目列表</button>
       <div className="project-detail-header">
         <div>
-          <span className="eyebrow">L1 事件分析项目</span>
+          <span className="eyebrow">技战术分析项目</span>
           <h1>{project.title}</h1>
           <p>{project.subtitle}</p>
         </div>
         <div className="project-kpis">
           <div><strong>{videos.length}</strong><span>比赛视频</span></div>
-          <div><strong>{videos.reduce((sum, item) => sum + (item.events?.length || (item.status === "分析完成" ? 9 : 0)), 0)}</strong><span>关键节点</span></div>
+          <div><strong>{videos.reduce((sum, item) => sum + (item.events?.length || item.eventCount || (item.status === "分析完成" ? 9 : 0)), 0)}</strong><span>关键节点</span></div>
           <div><strong>{videos.filter((item) => item.status === "分析完成").length}</strong><span>分析完成</span></div>
         </div>
       </div>
       <div className="project-section-title">
-        <div><h2>项目视频</h2><p>点击视频进入 L1 事件分析工作台</p></div>
+        <div><h2>项目视频</h2><p>点击视频进入技战术分析工作台</p></div>
       </div>
       <div className="project-video-list">
         {videos.map((asset) => (
@@ -542,12 +559,12 @@ function coordinateText(position) {
 
 
 function SetPieceClipsView({ clips, events, poster, onOpenEvent }) {
-  const setPieceEvents = events.filter((event) => event.category === "定位球");
+  const setPieceEvents = events.filter((event) => event.category === "定位球" && event.publishedForStatistics !== false);
   const counts = Object.fromEntries(setPieceTypeOrder.map((type) => [type, setPieceEvents.filter((event) => event.subtype === type).length]));
   return (
     <div className="set-piece-view">
       <div className="set-piece-intro">
-        <div><span className="eyebrow">L1-02</span><h2>定位球分类与证据片段</h2><p>每次重启单独成片，保留开出前准备、足球运行和首次稳定落点。</p></div>
+        <div><span className="eyebrow">定位球</span><h2>定位球分类与证据片段</h2><p>每次重启单独成片，保留开出前准备、足球运行和首次稳定落点。</p></div>
         <div className="set-piece-total"><strong>{setPieceEvents.length}</strong><span>定位球候选</span></div>
       </div>
       <div className="set-piece-stats">
@@ -598,7 +615,11 @@ function AnalysisPage({ project, asset, onBack }) {
   const [category, setCategory] = useState("全部");
   const [activeEvent, setActiveEvent] = useState(null);
   const [tab, setTab] = useState("L1事件时间轴");
+  const [level, setLevel] = useState("L1");
+  const [tacticalItem, setTacticalItem] = useState(null);
+  const [formationItem, setFormationItem] = useState(null);
   const [reviewStatuses, setReviewStatuses] = useState({});
+  const [reviewFilter, setReviewFilter] = useState("全部意见");
   const baseEvents = useMemo(() => {
     if (Array.isArray(asset.events)) return asset.events;
     return asset.id === "match-overview" ? demoEvents : buildGeneratedEvents(duration || asset.duration);
@@ -607,11 +628,16 @@ function AnalysisPage({ project, asset, onBack }) {
     () => baseEvents.map((event) => ({ ...event, reviewStatus: reviewStatuses[event.id] || event.reviewStatus || "candidate" })),
     [baseEvents, reviewStatuses],
   );
-  const categories = ["全部", "射门", "定位球", "传接带", "球权转换", "防守干预", "门将事件"];
-  const visibleEvents = category === "全部" ? events : events.filter((event) => event.category === category);
-  const setPieceClips = Array.isArray(asset.setPieces) ? asset.setPieces : [];
+  const categories = ["全部", "射门", "定位球", ...(asset.layers ? ["出界"] : []), "传接带", "球权转换", "防守干预", "门将事件"];
+  const assistantReviewed = events.some((event) => event.reviewerLabel);
+  const visibleEvents = events.filter((event) => (category === "全部" || event.category === category)
+    && (!assistantReviewed || reviewFilter === "全部意见"
+      || (reviewFilter === "采纳与改判" && isAccepted(event))
+      || (reviewFilter === "排除" && (event.reviewStatus === "rejected" || (event.reviewStatus !== "confirmed" && (event.reviewDecision || event.assistantDecision) === "rejected")))
+      || (reviewFilter === "待核实" && (event.reviewDecision || event.assistantDecision) === "uncertain")));
+  const setPieceClips = Array.isArray(asset.setPieces) ? asset.setPieces.filter(clip => events.some(event => event.id === clip.event_id && isAccepted(event))) : [];
   const setPieceCounts = useMemo(() => {
-    const setPieceEvents = events.filter((event) => event.category === "定位球");
+    const setPieceEvents = events.filter((event) => event.category === "定位球" && isAccepted(event));
     return Object.fromEntries(
       setPieceTypeOrder.map((type) => [type, setPieceEvents.filter((event) => event.subtype === type).length]),
     );
@@ -624,15 +650,21 @@ function AnalysisPage({ project, asset, onBack }) {
     setVideoReady(false);
     setPlaybackError("");
     setReviewStatuses({});
+    setReviewFilter("全部意见");
+    setTacticalItem(null);
+    setFormationItem(null);
+    setLevel("L1");
   }, [asset.id]);
 
   const seek = (time, event = null) => {
+    setFormationItem(null);
     if (videoRef.current) videoRef.current.currentTime = Math.min(Math.max(time, 0), duration || time);
     setCurrentTime(time);
-    if (event) setActiveEvent(event);
+    if (event) { setActiveEvent(event); setTacticalItem(null); }
   };
 
   const togglePlay = async () => {
+    setFormationItem(null);
     if (!videoRef.current) return;
     try {
       setPlaybackError("");
@@ -655,7 +687,8 @@ function AnalysisPage({ project, asset, onBack }) {
   };
 
   const toggleFullscreen = () => {
-    videoRef.current?.requestFullscreen?.();
+    const target = formationItem ? videoRef.current?.parentElement : videoRef.current;
+    target?.requestFullscreen?.();
   };
 
   const reviewEvent = async (event, reviewStatus) => {
@@ -688,12 +721,12 @@ function AnalysisPage({ project, asset, onBack }) {
           <span className="football-symbol"><CircleDot size={28} /></span>
           <div><h1>{project.title}</h1><p>{asset.title} · {formatTime(duration)}</p></div>
         </div>
-        <div className="analysis-score"><span>视频证据</span><strong>L1 事件层</strong><span>人工可复核</span></div>
+        <div className="analysis-score"><span>视频证据</span><strong>{asset.layers ? "战术分析" : "关键事件"}</strong><span>人工可复核</span></div>
       </div>
       <div className="analysis-tabs">
         {["L1事件时间轴", "定位球片段"].map((item) => (
-          <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
-            {item === "L1事件时间轴" ? <BarChart3 size={17} /> : <FileVideo size={17} />}{item}
+          <button key={item} className={tab === item ? "active" : ""} onClick={() => {setTab(item);setFormationItem(null);}}>
+            {item === "L1事件时间轴" ? <BarChart3 size={17} /> : <FileVideo size={17} />}{item === "L1事件时间轴" ? "事件时间轴" : item}
           </button>
         ))}
       </div>
@@ -718,14 +751,15 @@ function AnalysisPage({ project, asset, onBack }) {
                   setPlaybackError("视频加载失败，请检查文件是否存在或是否采用 H.264 编码。");
                 }}
                 onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-                onPlay={() => setPlaying(true)}
+                onPlay={() => {setPlaying(true);setFormationItem(null);}}
                 onPause={() => setPlaying(false)}
                 onEnded={() => setPlaying(false)}
                 onClick={togglePlay}
               />
-              <button className="center-play" onClick={togglePlay} aria-label={playing ? "暂停" : "播放"}>
+              {!formationItem && <button className="center-play" onClick={togglePlay} aria-label={playing ? "暂停" : "播放"}>
                 {playing ? <Pause size={27} fill="currentColor" /> : <Play size={29} fill="currentColor" />}
-              </button>
+              </button>}
+              {formationItem && level === "L4" && <FormationEvidence key={formationItem.id} item={formationItem} onClose={() => setFormationItem(null)}/>}
               {!videoReady && !playbackError && <span className="video-loading">正在准备视频...</span>}
               {playbackError && (
                 <div className="playback-error" role="alert">
@@ -735,8 +769,8 @@ function AnalysisPage({ project, asset, onBack }) {
                   <button onClick={reloadVideo}>重新加载</button>
                 </div>
               )}
-              <span className="video-analysis-badge"><Sparkles size={14} />L1 视觉事件候选</span>
-              {displayEvent && (
+              {!asset.boxesOnly && <span className="video-analysis-badge"><Sparkles size={14} />事件候选</span>}
+              {displayEvent && !asset.boxesOnly && (
                 <div className="event-overlay">
                   <EventTag event={displayEvent} />
                   <strong>{displayEvent.title}</strong>
@@ -774,15 +808,21 @@ function AnalysisPage({ project, asset, onBack }) {
               </div>
             </div>
             <div className="insight-strip">
-              <div><span>L1 事件</span><strong>{events.length}</strong><small>可定位到视频证据</small></div>
-              <div><span>定位球</span><strong>{events.filter((item) => item.category === "定位球").length}</strong><small>按六种重启类型统计</small></div>
+              <div><span>关键事件</span><strong>{events.length}</strong><small>可定位到视频证据</small></div>
+              <div><span>定位球</span><strong>{events.filter((item) => item.category === "定位球" && isAccepted(item)).length}</strong><small>本次已采纳的切片</small></div>
               <div><span>事件组覆盖</span><strong>{new Set(events.map((item) => item.group).filter(Boolean)).size}/6</strong><small>射门至门将事件</small></div>
-              <div><span>平均置信度</span><strong>{events.length ? Math.round(events.reduce((sum, item) => sum + item.confidence, 0) / events.length) : 0}%</strong><small>候选排序指标</small></div>
+              <div><span>{assistantReviewed ? "复核采纳" : asset.layers ? "视觉支持" : "平均置信度"}</span><strong>{asset.layers ? events.filter(isAccepted).length : `${events.length ? Math.round(events.reduce((sum, item) => sum + item.confidence, 0) / events.length) : 0}%`}</strong><small>{asset.layers ? "抽样审核结果" : "候选排序指标"}</small></div>
             </div>
+            <PlayerFocus key={asset.id} asset={asset} videoRef={videoRef} onSeek={seek}/>
           </section>
+          {asset.layers && <div className="analysis-commentary">
+            {tacticalItem ? <TacticalCommentary item={tacticalItem} onSeek={seek} /> : <EventReviewDetail event={displayEvent} onSeek={seek} />}
+          </div>}
           <aside className="segments-panel">
+            {asset.layers && <div className="analysis-levels" role="tablist" aria-label="技战术分析分类">{Object.entries(analysisLevelLabels).map(([key, label]) => <button key={key} role="tab" aria-selected={level === key} className={level === key ? "active" : ""} onClick={() => { setLevel(key); setTacticalItem(null); setFormationItem(null); }}>{label}</button>)}</div>}
+            {level !== "L1" && asset.layers ? <LayeredAnalysisPanel key={level} level={level} data={level === "L2" ? deriveStatistics(asset.layers.L2,events) : level === "L3" ? refreshOrganization(asset.layers.L3,events) : asset.layers[level]} onSeek={(time, item) => { seek(time); setTacticalItem(item?.commentary ? item : null); if(level === "L4" && item?.formationEvidence){videoRef.current?.pause();setFormationItem(item);} }} /> : <>
             <div className="segments-header">
-              <div><h2>L1 事件节点</h2><span><Sparkles size={14} />视觉候选</span></div>
+              <div><h2>关键事件</h2><span><Sparkles size={14} />{assistantReviewed ? "智能复核" : asset.layers ? "抽样审核" : "视觉候选"}</span></div>
               <p>按“谁、何时、何地、做了什么、结果如何”组织</p>
             </div>
             <div className="segment-filters">
@@ -792,6 +832,8 @@ function AnalysisPage({ project, asset, onBack }) {
               </div>
               <span>{visibleEvents.length} 个节点</span>
             </div>
+            {asset.reviewWarnings?.map((warning) => <p key={warning} role="status" className="layer-note">{warning}</p>)}
+            {assistantReviewed && <div className="segment-filters"><div className="select-wrap"><select aria-label="助手复核意见" value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value)}>{["全部意见", "采纳与改判", "排除", "待核实"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={16} /></div></div>}
             {displayEvent && (
               <div className="event-review-bar">
                 <div><span>当前事件</span><strong>{displayEvent.reviewStatus === "confirmed" ? "已确认" : displayEvent.reviewStatus === "rejected" ? "已拒绝" : "待审核"}</strong></div>
@@ -802,17 +844,18 @@ function AnalysisPage({ project, asset, onBack }) {
             <div className="segment-list">
               {visibleEvents.map((event) => (
                 <button key={event.id} className={`segment-row ${activeEvent?.id === event.id ? "active" : ""}`} onClick={() => seek(event.time, event)}>
-                  <div className="segment-thumb">{asset.poster ? <img src={asset.poster} alt="" /> : <Video size={23} />}<span>{formatTime(event.time)}</span></div>
+                  <div className="segment-thumb">{event.thumbnailUrl || asset.poster ? <img src={event.thumbnailUrl || asset.poster} alt="" /> : <Video size={23} />}<span>{formatTime(event.time)}</span></div>
                   <div className="segment-copy">
                     <div><EventTag event={event} /><span>{formatTime(event.time)}–{formatTime(event.end)}</span></div>
                     <strong>{event.title}</strong>
                     <p>{event.summary}</p>
-                    <div className="confidence"><i style={{ width: `${event.confidence}%` }} /><span>{event.confidence}%</span></div>
+                    {asset.layers ? <small className={`review-verdict ${event.visionStatus}`}>{event.visionStatusLabel}</small> : <div className="confidence"><i style={{ width: `${event.confidence}%` }} /><span>{event.confidence}%</span></div>}
                   </div>
                   <ChevronRight size={18} />
                 </button>
               ))}
             </div>
+            </>}
           </aside>
         </div>
       ) : (
@@ -837,7 +880,7 @@ function ReportsPage({ projects }) {
         {projects.map((project) => (
           <div className="report-row" key={project.id}>
             <span><FileBarChart size={19} />{project.title} - 综合报告</span>
-            <span>{project.title}</span><span>L1 JSON · CSV · 定位球清单</span><span className="report-ready">已生成</span><button className="secondary-button">查看</button>
+            <span>{project.title}</span><span>事件数据 · 统计表 · 定位球清单</span><span className="report-ready">已生成</span><button className="secondary-button">查看</button>
           </div>
         ))}
       </div>
@@ -871,10 +914,12 @@ function PreviewDialog({ asset, onClose, onAnalyze }) {
   if (!asset) return null;
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
-      <div className="preview-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="preview-dialog-header"><div><h2>{asset.title}</h2><p>{asset.filename}</p></div><button className="icon-button" onClick={onClose}><X size={20} /></button></div>
+      <div className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="preview-dialog-header"><div><h2 id="preview-title">{asset.title}</h2><p>{asset.filename}</p></div><button className="icon-button" onClick={onClose}><X size={20} /></button></div>
         <video src={asset.src} poster={asset.poster} controls autoPlay />
-        <div className="preview-dialog-footer"><span>{formatTime(asset.duration)} · {asset.size}</span><button className="primary-button" onClick={() => onAnalyze(asset)}><BarChart3 size={17} />进入分析</button></div>
+        <div className="preview-dialog-footer"><span>{formatTime(asset.duration)} · {asset.size}</span>{asset.previewOnly
+          ? <span>定位球结论仍需人工复核</span>
+          : <button className="primary-button" onClick={() => onAnalyze(asset)}><BarChart3 size={17} />进入分析</button>}</div>
       </div>
     </div>
   );
@@ -947,16 +992,24 @@ export default function App() {
       const result = await waitForAnalysis(assetId, job.id);
       updateAsset(assetId, {
         status: "分析完成",
-        analysisStage: result.cached ? "已复用本地完整分析结果" : "本地完整流水线处理完成",
+        analysisStage: result.reviewWarnings?.length ? "已生成输出，部分节点待核实" : result.cached ? "已复用本地完整分析结果" : "本地完整流水线处理完成",
+        reviewWarnings: result.reviewWarnings,
         analysisProgress: 100,
         src: result.videoUrl,
+        layers: result.layers,
+        boxesOnly: result.boxesOnly,
+        playerTrackingUrl: result.playerTrackingUrl,
+        playerTrackingHash: result.playerTrackingHash,
+        playerTrackingPath: result.playerTrackingPath,
+        playerReviewsUrl: result.playerReviewsUrl,
+        eventCount: result.events.length,
         events: result.events,
         l1Summary: result.l1Summary,
         setPieces: result.setPieces,
         reportUrl: result.reportUrl,
         pipeline: result.pipeline,
         size: formatBytes(result.sizeBytes),
-        tags: ["足球", "L1事件输出"],
+        tags: ["足球", "关键事件"],
       });
       setToast(result.cached ? "已匹配本地分析结果，可进入项目查看" : "视频技战术分析已完成");
     } catch (error) {
@@ -1021,7 +1074,7 @@ export default function App() {
     const project = {
       id,
       title,
-      subtitle: "本地上传比赛 · L1 视觉事件分析",
+      subtitle: "本地比赛 · 关键事件分析",
       createdAt: new Date().toLocaleString("zh-CN", { hour12: false }),
       assetIds: dialogAssetId ? [dialogAssetId] : [],
       type: "技战术分析",
@@ -1038,8 +1091,44 @@ export default function App() {
     navigate("project");
   };
 
-  const openAnalysis = (assetId, projectId = activeProjectId) => {
+  const openAnalysis = async (assetId, projectId = activeProjectId) => {
     let targetProjectId = projectId;
+    const targetAsset = assets.find((asset) => asset.id === assetId);
+    if (targetAsset?.previewOnly) {
+      setPreviewAsset(targetAsset);
+      return;
+    }
+    if (targetAsset?.resultEndpoint && !Array.isArray(targetAsset.events)) {
+      setToast("正在读取本地分析报告...");
+      try {
+        const response = await fetch(targetAsset.resultEndpoint);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "无法读取本地分析结果");
+        updateAsset(assetId, {
+          src: result.videoUrl,
+          layers: result.layers,
+          boxesOnly: result.boxesOnly,
+          playerTrackingUrl: result.playerTrackingUrl,
+          playerTrackingHash: result.playerTrackingHash,
+          playerTrackingPath: result.playerTrackingPath,
+          playerReviewsUrl: result.playerReviewsUrl,
+          events: result.events,
+          eventCount: result.analysisMode === "spatial" ? result.spatialAnalysis?.windows?.length : result.events.length,
+          l1Summary: result.l1Summary,
+          setPieces: result.setPieces,
+          analysisMode: result.analysisMode,
+          spatialAnalysis: result.spatialAnalysis,
+          reportUrl: result.reportUrl,
+          pipeline: result.pipeline,
+          reviewWarnings: result.reviewWarnings,
+          size: formatBytes(result.sizeBytes),
+          analysisStage: result.analysisMode === "spatial" ? "已载入二维空间分析结果" : "已载入本地分析结果",
+        });
+      } catch (error) {
+        setToast(`读取分析结果失败：${error.message}`);
+        return;
+      }
+    }
     const containingProject = projects.find((project) => project.assetIds.includes(assetId));
     if (!projects.find((project) => project.id === targetProjectId)?.assetIds.includes(assetId)) {
       targetProjectId = containingProject?.id || projects[0]?.id;
@@ -1075,7 +1164,11 @@ export default function App() {
             onPending={(asset) => setToast(asset.status === "分析失败" ? asset.analysisStage : `${asset.analysisStage || "正在分析"}，完成后可进入工作台`)}
           />
         )}
-        {view === "analysis" && activeProject && activeAsset && <AnalysisPage project={activeProject} asset={activeAsset} onBack={() => navigate("project")} />}
+        {view === "analysis" && activeProject && activeAsset && (
+          activeAsset.analysisMode === "spatial"
+            ? <SpatialAnalysisPage project={activeProject} asset={activeAsset} onBack={() => navigate("project")} />
+            : <AnalysisPage project={activeProject} asset={activeAsset} onBack={() => navigate("project")} />
+        )}
         {view === "reports" && <ReportsPage projects={projects} />}
       </div>
       <NewProjectDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSubmit={createProject} defaultAsset={assets.find((item) => item.id === dialogAssetId)} />

@@ -158,6 +158,8 @@ class TacticalAnalysisExtensionsTest(unittest.TestCase):
             corner_frame(5, 0.4, 50.0, 32.0, 42.0, 12.0),
             corner_frame(6, 0.5, 49.0, 30.0, 42.0, 12.0),
             corner_frame(9, 0.8, 42.0, 12.0, 42.0, 12.0),
+            corner_frame(10, 0.9, 42.0, 12.0, 42.0, 12.0),
+            corner_frame(11, 1.0, 42.0, 12.0, 42.0, 12.0),
         ]
         context = AnalysisContext(Path("input.json"), None, 10.0, frames)
         output = SetPieceDeliveryAnalyzer(
@@ -181,7 +183,7 @@ class TacticalAnalysisExtensionsTest(unittest.TestCase):
         self.assertEqual(classify_set_piece(41.5, 0.0, "left", 1), "penalty")
         self.assertEqual(classify_set_piece(10.0, 33.0, "left", 1), "throw_in")
         self.assertEqual(classify_set_piece(-48.0, 2.0, "left", 1), "goal_kick")
-        self.assertEqual(classify_set_piece(20.0, 8.0, "left", 1), "free_kick")
+        self.assertEqual(classify_set_piece(20.0, 8.0, "left", 1), "unknown")
 
     def test_goalkeeper_event_requires_sustained_ball_proximity(self) -> None:
         frames = [

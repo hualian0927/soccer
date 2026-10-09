@@ -15,6 +15,7 @@ EVENT_PRESENTATION = {
     "shot_candidate": ("L1-01", "射门", "shot", "orange"),
     "corner_candidate": ("L1-02", "定位球", "set_piece", "yellow"),
     "set_piece_delivery_candidate": ("L1-02", "定位球", "set_piece", "yellow"),
+    "ball_out_of_play_candidate": ("L1-02", "出界", "ball_out_of_play", "yellow"),
     "touch_candidate": ("L1-03", "传接带", "touch", "blue"),
     "receive_candidate": ("L1-03", "传接带", "receive", "blue"),
     "carry_candidate": ("L1-03", "传接带", "carry", "green"),
@@ -61,6 +62,19 @@ def _default_window(event_type: str, time_sec: float) -> tuple[float, float]:
     return max(0.0, time_sec - pre), time_sec + post
 
 
+def _evidence_window(event: TimelineEvent, duration: float) -> tuple[float, float]:
+    fallback_start, fallback_end = _default_window(event.event_type, event.time_sec)
+    start = event.evidence_start_sec if event.evidence_start_sec is not None else fallback_start
+    end = event.evidence_end_sec if event.evidence_end_sec is not None else fallback_end
+    if event.event_type == "set_piece_delivery_candidate":
+        end = max(end, float(event.metrics.get("landing_sec") or event.time_sec) + 4.0)
+    if _event_subtype(event) == "corner" and event.event_type in {"corner_candidate", "set_piece_delivery_candidate"}:
+        # The geometric trigger may be the ball going out, well before the televised restart.
+        start = min(start, event.time_sec - 7.0)
+        end = max(end, event.time_sec + 24.0)
+    return round(max(0.0, start), 3), round(min(duration or end, end), 3)
+
+
 def _first_not_none(*values: Any) -> Any:
     return next((value for value in values if value is not None), None)
 
@@ -81,6 +95,8 @@ def _event_subtype(event: TimelineEvent) -> str:
 
 
 def _event_outcome(event: TimelineEvent) -> str:
+    if event.event_type == "set_piece_delivery_candidate" and event.metrics.get("landing_zone") == "out_of_bounds":
+        return "unknown"
     if event.outcome != "unknown":
         return event.outcome
     metrics = event.metrics
@@ -101,9 +117,11 @@ def _summary_text(event: TimelineEvent, subtype: str, outcome: str) -> str:
     if event.event_type in {"corner_candidate", "set_piece_delivery_candidate"}:
         label = SET_PIECE_LABELS.get(subtype, SET_PIECE_LABELS["unknown"])
         raw_zone = str(metrics.get("landing_zone") or "")
+        if raw_zone == "out_of_bounds":
+            return f"{label}几何候选；落点跟踪点越界，重启类型和后续结果均待原片复核"
         zone = ZONE_LABELS.get(raw_zone, "落点待确认")
         followup = "，10秒内形成射门候选" if metrics.get("shot_within_10s") else ""
-        return f"{label}开出，落点区域 {zone}，{OUTCOME_LABELS.get(outcome, '结果待确认')}{followup}"
+        return f"{label}开出候选，估计落点区域 {zone}，{OUTCOME_LABELS.get(outcome, '结果待确认')}{followup}；须由原片确认"
     if event.event_type == "shot_candidate":
         return f"射门位置与方向满足视觉候选，结果 {outcome}"
     if event.event_type == "pass_candidate":
@@ -137,11 +155,7 @@ def build_l1_catalog(report: AnalysisReport) -> dict[str, Any]:
             group_id, group_label, canonical_type, color = presentation
             subtype = _event_subtype(event)
             outcome = _event_outcome(event)
-            fallback_start, fallback_end = _default_window(event.event_type, event.time_sec)
-            evidence_start = event.evidence_start_sec if event.evidence_start_sec is not None else fallback_start
-            evidence_end = event.evidence_end_sec if event.evidence_end_sec is not None else fallback_end
-            if event.event_type == "set_piece_delivery_candidate":
-                evidence_end = max(evidence_end, float(event.metrics.get("landing_sec") or event.time_sec) + 4.0)
+            evidence_start, evidence_end = _evidence_window(event, duration)
             record = {
                 "event_id": f"{output.analyzer}:{event.event_id}",
                 "l1_group": group_id,
@@ -161,8 +175,8 @@ def build_l1_catalog(report: AnalysisReport) -> dict[str, Any]:
                 "end_y": _first_not_none(event.end_y, event.metrics.get("landing_y"), event.metrics.get("end_y")),
                 "outcome": outcome,
                 "confidence": round(event.confidence, 4),
-                "evidence_start_sec": round(max(0.0, evidence_start), 3),
-                "evidence_end_sec": round(min(duration or evidence_end, evidence_end), 3),
+                "evidence_start_sec": evidence_start,
+                "evidence_end_sec": evidence_end,
                 "source": event.source,
                 "review_status": event.review_status,
                 "related_event_ids": event.related_event_ids,
@@ -172,10 +186,10 @@ def build_l1_catalog(report: AnalysisReport) -> dict[str, Any]:
             }
             records.append(record)
             group_counts[group_id] += 1
-            if group_id == "L1-02":
+            if group_id == "L1-02" and canonical_type != "ball_out_of_play":
                 subtype_counts[subtype] += 1
     records.sort(key=lambda item: (item["timestamp_sec"], item["event_id"]))
-    set_pieces = [item for item in records if item["l1_group"] == "L1-02"]
+    set_pieces = [item for item in records if item["l1_group"] == "L1-02" and item["event_type"] != "ball_out_of_play"]
     return {
         "schema_version": "1.0.0",
         "source": report.source,

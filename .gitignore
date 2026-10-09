@@ -57,6 +57,13 @@ npm-debug.log*
 !.env.example
 .vscode/
 .idea/
+*.pem
+*.key
+.venv/
+API/output/
+API/example/
+二维分析/
+*.log
 
 # User-requested excluded planning/research documents
 体育类AI自动剪辑产品调研与技术需求.md

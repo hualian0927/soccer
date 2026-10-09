@@ -37,6 +37,7 @@ TYPE_LABELS = {
     "throw_in": "界外球",
     "kickoff": "中圈开球",
     "penalty": "点球",
+    "unknown": "重启类型待核",
 }
 
 
@@ -53,7 +54,7 @@ def classify_set_piece(origin_x: float, origin_y: float, team: str | None, direc
     if team in {"left", "right"} and abs(origin_x) >= HALF_LENGTH - 10.0 and abs(origin_y) <= 14.0:
         if origin_x * direction < 0:
             return "goal_kick"
-    return "free_kick"
+    return "unknown"
 
 
 @register_analyzer("set_piece_delivery")
@@ -126,6 +127,7 @@ class SetPieceDeliveryAnalyzer(TacticalAnalyzer):
                 landing_window,
                 landing_radius,
                 taker.track_id if taker else None,
+                maximum_gap_sec=maximum_gap,
             )
             if landing is None:
                 stationary_start = None
@@ -141,6 +143,8 @@ class SetPieceDeliveryAnalyzer(TacticalAnalyzer):
                 "origin_x": round(origin_x, 3),
                 "origin_y": round(origin_y, 3),
                 "restart_speed_mps": round(float(speed), 3),
+                "type_evidence": "pitch_geometry_candidate",
+                "requires_visual_restart_review": True,
                 **landing,
                 "landing_zone": landing_zone(float(landing["landing_x"]), float(landing["landing_y"]), direction),
                 "retained_by_taking_team": bool(team is not None and landing_team == team),
@@ -171,6 +175,7 @@ class SetPieceDeliveryAnalyzer(TacticalAnalyzer):
                 landing_window,
                 landing_radius,
                 corner.actor_track_id,
+                maximum_gap_sec=maximum_gap,
             )
             if landing is None:
                 continue
@@ -301,19 +306,34 @@ class SetPieceDeliveryAnalyzer(TacticalAnalyzer):
         window_sec: float,
         control_radius: float,
         taker_track_id: int | None,
+        maximum_gap_sec: float = 0.6,
+        minimum_control_samples: int = 3,
+        minimum_control_sec: float = 0.12,
     ) -> dict[str, object] | None:
         restart_frame = samples[restart_index]["frame"]
         last_sample = None
+        control = []
+        previous_time = restart_frame.time_sec
         for sample in samples[restart_index + 1:]:
             frame = sample["frame"]
             if frame.time_sec - restart_frame.time_sec > window_sec:
                 break
+            if frame.time_sec - previous_time > maximum_gap_sec:
+                break
+            previous_time = frame.time_sec
             last_sample = sample
             distance = math.hypot(float(sample["x"]) - origin_x, float(sample["y"]) - origin_y)
             if distance < 6.0 or frame.time_sec - restart_frame.time_sec < 0.15:
+                control = []
                 continue
             receiver, receiver_distance = nearest_ball_player(frame, control_radius)
-            if receiver and receiver.track_id != taker_track_id:
+            if receiver and receiver.track_id != taker_track_id and abs(float(sample["x"])) <= 52.5 and abs(float(sample["y"])) <= 34:
+                identity = (receiver.team, receiver.track_id)
+                if control and identity != control[-1][0]:
+                    control = []
+                control.append((identity, frame.time_sec))
+                if len(control) < minimum_control_samples or frame.time_sec-control[0][1] < minimum_control_sec:
+                    continue
                 return {
                     "landing_sec": round(frame.time_sec, 3),
                     "landing_frame": frame.frame,
@@ -325,7 +345,10 @@ class SetPieceDeliveryAnalyzer(TacticalAnalyzer):
                     "landing_track_id": receiver.track_id,
                     "landing_control_distance_m": round(receiver_distance, 3) if receiver_distance is not None else None,
                     "landing_source": "first_stable_control",
+                    "control_support_samples": len(control),
                 }
+            else:
+                control = []
         if last_sample is None:
             return None
         frame = last_sample["frame"]

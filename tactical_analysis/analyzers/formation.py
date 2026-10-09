@@ -72,12 +72,14 @@ def estimate_frame(frame: FrameState, team: str, min_visible: int) -> dict | Non
         player.track_id: player
         for player in frame.players
         if player.team == team and player.role == "player" and player.has_pitch_position
+        and np.isfinite(player.pitch_x) and np.isfinite(player.pitch_y)
+        and abs(player.pitch_x) <= 52.5 and abs(player.pitch_y) <= 34
     }
     players = list(players_by_track.values())
     if len(players) < min_visible:
         return None
     if len(players) > 10:
-        players = players[:10]
+        return None
     direction = attack_direction(frame, team)
     x_values = np.asarray([float(player.pitch_x) for player in players], dtype=np.float32)
     y_values = np.asarray([float(player.pitch_y) for player in players], dtype=np.float32)
@@ -102,10 +104,10 @@ def estimate_frame(frame: FrameState, team: str, min_visible: int) -> dict | Non
         separation = float(np.min(np.diff(centers))) if len(centers) > 1 else 0.0
         cluster_penalty = error / max(depth, 1.0)
         score = distance + cluster_penalty * 0.10 + (0.04 if clusters == 4 and len(players) < 9 else 0.0)
-        candidates.append((score, name, counts, scaled, distance, separation))
+        candidates.append((score, name, counts, scaled, distance, separation, labels))
     if not candidates:
         return None
-    score, name, counts, scaled, distance, separation = min(candidates, key=lambda item: item[0])
+    score, name, counts, scaled, distance, separation, labels = min(candidates, key=lambda item: item[0])
     visible_factor = min(1.0, len(players) / 10.0)
     geometry_factor = min(1.0, 0.55 * depth / 45.0 + 0.45 * width / 42.0)
     confidence = max(0.0, min(0.95, (1.0 - distance / 1.05) * visible_factor * max(0.35, geometry_factor)))
@@ -113,11 +115,14 @@ def estimate_frame(frame: FrameState, team: str, min_visible: int) -> dict | Non
         "frame": frame.frame,
         "time_sec": round(frame.time_sec, 3),
         "team": team,
-        "formation": name,
+        "formation": name if len(players) == 10 and counts == FORMATION_TEMPLATES[name] else "局部" + "-".join(map(str, counts)),
+        "template_candidate": name,
+        "complete_visible_team": len(players) == 10,
         "confidence": round(confidence, 4),
         "visible_players": len(players),
         "line_counts": counts,
-        "scaled_counts": scaled,
+        "scaled_counts": counts,
+        "line_members": [[p.track_id for p, label in zip(players, labels) if label == i] for i in range(len(counts))],
         "width_m": round(width, 3),
         "depth_m": round(depth, 3),
         "line_separation_m": round(separation, 3),

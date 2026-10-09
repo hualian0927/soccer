@@ -10,6 +10,23 @@ from ..models import HALF_LENGTH, AnalysisContext, AnalyzerOutput, Evidence, Fin
 from .events import ConstrainedPossessionDecoder, EventTimelineAnalyzer, ball_point
 
 
+def image_ball_distance(keeper, ball) -> float | None:
+    """Distance from ball center to the keeper box, in keeper-height units."""
+    if not keeper.bbox or not ball or not ball.bbox:
+        return None
+    box, target = keeper.bbox, ball.bbox
+    if any(key not in value or not math.isfinite(value[key]) for value in (box,target) for key in ("x","y","w","h")):
+        return float("inf")
+    if box.get("h", 0) <= 0 or box.get("w", 0) <= 0:
+        return None
+    if target.get("h", 0) > box["h"] * 0.45 or target.get("w", 0) > box["w"] * 0.8:
+        return float("inf")
+    bx, by = target["x"] + target["w"] / 2, target["y"] + target["h"] / 2
+    dx = max(box["x"] - bx, 0, bx - box["x"] - box["w"])
+    dy = max(box["y"] - by, 0, by - box["y"] - box["h"])
+    return math.hypot(dx, dy) / box["h"]
+
+
 @register_analyzer("goalkeeper_interventions")
 class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
     priority = "P1"
@@ -39,19 +56,24 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
         observations_by_track: dict[tuple[str, int], list[dict[str, object]]] = defaultdict(list)
         for frame in context.frames:
             ball = ball_point(frame)
-            if ball is None:
+            if ball is None or not all(math.isfinite(v) for v in ball):
                 continue
             for keeper in frame.players:
                 if keeper.role != "goalkeeper" or keeper.team not in {"left", "right"} or not keeper.has_pitch_position:
                     continue
                 keeper_x = float(keeper.pitch_x)
                 keeper_y = float(keeper.pitch_y)
+                if not math.isfinite(keeper_x) or not math.isfinite(keeper_y):
+                    continue
                 nearest_goal_x = HALF_LENGTH if keeper_x >= 0.0 else -HALF_LENGTH
                 depth_from_goal = abs(nearest_goal_x - keeper_x)
                 if depth_from_goal > goal_depth or abs(keeper_y) > goal_half_width:
                     continue
                 distance = math.hypot(keeper_x - ball[0], keeper_y - ball[1])
                 if distance > approach_radius:
+                    continue
+                image_distance = image_ball_distance(keeper, frame.ball)
+                if distance <= intervention_radius and image_distance is not None and image_distance > 0.65:
                     continue
                 possession = possession_by_frame.get(frame.frame)
                 observations_by_track[(keeper.team, keeper.track_id)].append(
@@ -67,6 +89,7 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                         "ball_x": ball[0],
                         "ball_y": ball[1],
                         "ball_distance_m": distance,
+                        "image_distance_heights": image_distance,
                         "controlled": bool(possession and possession.track_id == keeper.track_id),
                     }
                 )
@@ -75,7 +98,11 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
         for track_observations in observations_by_track.values():
             current: list[dict[str, object]] = []
             for observation in track_observations:
-                if current and float(observation["time_sec"]) - float(current[-1]["time_sec"]) > maximum_gap:
+                gap = float(observation["time_sec"]) - float(current[-1]["time_sec"]) if current else 0
+                jump = math.hypot(float(observation["x"]) - float(current[-1]["x"]),
+                                  float(observation["y"]) - float(current[-1]["y"])) if current else 0
+                if current and (gap > maximum_gap or jump > maximum_response_speed * max(gap, 0.03) + 1.5
+                                or float(observation["time_sec"]) - float(current[0]["time_sec"]) > 5.0):
                     episodes.append(current)
                     current = []
                 current.append(observation)
@@ -93,7 +120,7 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
             team = str(action["team"])
             start_time = float(first["time_sec"])
             action_time = float(action["time_sec"])
-            duration = action_time - start_time
+            duration = float(episode[-1]["time_sec"]) - start_time
             close_samples = sum(float(item["ball_distance_m"]) <= intervention_radius for item in episode)
             control_samples = sum(bool(item["controlled"]) for item in episode)
             minimum_distance = float(action["ball_distance_m"])
@@ -108,26 +135,23 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                 float(action["x"]) - float(first["x"]),
                 float(action["y"]) - float(first["y"]),
             )
-            response_speed = response_distance / max(duration, 0.1)
+            response_speed = response_distance / max(action_time-start_time, 0.1)
             if response_speed > maximum_response_speed:
                 continue
 
             related_shot = min(
                 (
                     shot for shot in shots
-                    if shot.team and shot.team != team and start_time - 2.0 <= shot.time_sec <= action_time + 0.5
+                    if shot.team and shot.team != team and start_time - 2.0 <= shot.time_sec <= action_time
                 ),
                 key=lambda shot: abs(action_time - shot.time_sec),
                 default=None,
             )
             lateral_displacement = abs(float(action["y"]) - float(first["y"]))
             outfield_displacement = float(action["goal_depth_m"]) - float(first["goal_depth_m"])
-            if related_shot and lateral_displacement >= 3.0:
-                action_type = "lateral_save"
-                action_label = "侧向扑救候选"
-            elif related_shot:
+            if related_shot:
                 action_type = "shot_intervention"
-                action_label = "射门干预候选"
+                action_label = "门将射门干预待复核"
             elif control_samples >= 3:
                 action_type = "ball_control"
                 action_label = "门将控球候选"
@@ -149,6 +173,8 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                 "proximity_duration_sec": round(duration, 3),
                 "proximity_samples": close_samples,
                 "control_samples": control_samples,
+                "image_distance_heights": action.get("image_distance_heights"),
+                "requires_visual_action_review": True,
                 "goal_depth_m": round(float(action["goal_depth_m"]), 3),
                 "lateral_displacement_m": round(lateral_displacement, 3),
                 "outfield_displacement_m": round(outfield_displacement, 3),
@@ -180,8 +206,8 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                 start_y=float(first["ball_y"]),
                 end_x=float(action["ball_x"]),
                 end_y=float(action["ball_y"]),
-                evidence_start_sec=max(0.0, start_time - 1.0),
-                evidence_end_sec=min(context.duration_sec, action_time + 2.0),
+                evidence_start_sec=max(0.0, action_time - 5.0),
+                evidence_end_sec=min(context.duration_sec, action_time + 5.0),
                 source="vision_ball_goalkeeper_proximity",
                 related_event_ids=[related_shot.event_id] if related_shot else [],
             )
@@ -193,7 +219,7 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                     finding_id=f"goalkeeper-intervention-{len(findings) + 1:03d}",
                     analyzer=self.name,
                     priority=self.priority,
-                    category="goalkeeper_save_candidate",
+                    category="goalkeeper_save_candidate" if related_shot else "goalkeeper_contact_candidate",
                     title_zh=f"{action_time:.2f}秒 {'左队' if team == 'left' else '右队'}{action_label}",
                     summary_zh=(
                         f"球门将距离由{float(first['ball_distance_m']):.1f}米降至{minimum_distance:.1f}米，"
@@ -208,13 +234,49 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
                 )
             )
 
+        # Image-space contacts retain review candidates when projection is unavailable.
+        image_contacts = defaultdict(list)
+        for frame in context.frames:
+            for keeper in frame.players:
+                if keeper.role != "goalkeeper":
+                    continue
+                image_distance = image_ball_distance(keeper, frame.ball)
+                if image_distance is None or image_distance > 0.3:
+                    continue
+                point = ball_point(frame)
+                if point is not None and keeper.has_pitch_position:
+                    continue
+                image_contacts[(keeper.team, keeper.track_id)].append((frame, image_distance))
+        for (team, track_id), samples in image_contacts.items():
+            groups = []
+            for item in samples:
+                if not groups or item[0].time_sec - groups[-1][-1][0].time_sec > 0.3:
+                    groups.append([])
+                groups[-1].append(item)
+            for group in groups:
+                if len(group) < 4 or group[-1][0].time_sec - group[0][0].time_sec < 0.12:
+                    continue
+                frame, distance = min(group, key=lambda item: item[1])
+                if any(event.team == team and abs(event.time_sec - frame.time_sec) < cooldown for event in events):
+                    continue
+                events.append(TimelineEvent(
+                    event_id=f"goalkeeper-image-{len(events) + 1:03d}", event_type="goalkeeper_intervention_candidate",
+                    frame=frame.frame, time_sec=frame.time_sec, team=team, actor_track_id=track_id,
+                    target_track_id=None, confidence=0.5, label_zh="门将附近触球待复核",
+                    event_subtype="image_contact", source="keeper_kit_image_proximity",
+                    evidence_start_sec=max(0, frame.time_sec - 5),
+                    evidence_end_sec=min(context.duration_sec, frame.time_sec + 5),
+                    metrics={"action_type": "image_contact", "image_distance_heights": distance,
+                             "geometry_available": False, "requires_visual_action_review": True},
+                ))
+        events.sort(key=lambda event: event.time_sec)
         team_summary = {}
         for team in ("left", "right"):
             faced = [shot for shot in shots if shot.team and shot.team != team]
             items = [item for item in interventions if item["defending_team"] == team]
             team_summary[team] = {
                 "shots_faced_candidates": len(faced),
-                "intervention_candidates": len(items),
+                "intervention_candidates": sum(event.team == team for event in events),
                 "controlled_candidates": sum(int(item["control_samples"]) >= 3 for item in items),
                 "action_type_counts": {
                     action: sum(item["action_type"] == action for item in items)
@@ -224,7 +286,8 @@ class GoalkeeperInterventionAnalyzer(TacticalAnalyzer):
         return AnalyzerOutput(
             analyzer=self.name,
             priority=self.priority,
-            summary={"method": "sustained_ball_goalkeeper_proximity_v2", "teams": team_summary, "interventions": interventions},
+            summary={"method": "keeper_identity_pitch_image_contact_v3", "teams": team_summary, "interventions": interventions,
+                     "keeper_observations": sum(player.role == "goalkeeper" for frame in context.frames for player in frame.players)},
             findings=findings,
             events=events,
             warnings=[

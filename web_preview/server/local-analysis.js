@@ -4,12 +4,21 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { exportPlayerReview } from "./player-focus.js";
 
 
 const TEST_5MIN_SHA256 = "3ceafa207e1c57465ed793f19ac762a4eeb45353d4691a03c6c8a1f7151a9ce5";
 const MAX_FRONTEND_EVENTS = 120;
+const demoResults = {
+  "soccernet-mu-lei-40m": {
+    video: "soccer_input_dataset/outputs/SoccerNet_MU_LEI_40min_v1/03_tactical_red_blue_v2_web.mp4",
+    report: "soccer_input_dataset/outputs/SoccerNet_MU_LEI_40min_v1/tactical_report_v2/tactical_analysis_report.json",
+    clips: "soccer_input_dataset/outputs/SoccerNet_MU_LEI_40min_v1/set_piece_clips_v2/set_piece_clips.json",
+  },
+};
 
 const eventPresentation = {
+  ball_out_of_play_candidate: ["出界", "出界候选", "yellow", "L1-02"],
   shot_candidate: ["射门", "射门", "orange", "L1-01"],
   corner_candidate: ["定位球", "角球", "yellow", "L1-02"],
   set_piece_delivery_candidate: ["定位球", "定位球", "yellow", "L1-02"],
@@ -58,6 +67,15 @@ async function sha256(filePath) {
   const digest = createHash("sha256");
   for await (const chunk of createReadStream(filePath)) digest.update(chunk);
   return digest.digest("hex");
+}
+
+
+async function fileExists(filePath) {
+  try {
+    return (await stat(filePath)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 
@@ -220,8 +238,83 @@ function summarizeL1(events) {
 }
 
 
-function fileUrl(filePath) {
-  return `/@fs${filePath}`;
+function fileUrl(filePath, repoRoot) {
+  return `/api/media?path=${encodeURIComponent(path.relative(repoRoot, filePath))}`;
+}
+
+
+async function serveMedia(request, response, requestUrl, repoRoot) {
+  const relativePath = requestUrl.searchParams.get("path");
+  if (!relativePath) {
+    sendJson(response, 400, { error: "缺少媒体文件路径。" });
+    return;
+  }
+
+  const resolvedRoot = path.resolve(repoRoot);
+  const filePath = path.resolve(resolvedRoot, relativePath);
+  if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    sendJson(response, 403, { error: "不允许访问项目目录之外的文件。" });
+    return;
+  }
+
+  let fileInfo;
+  try {
+    fileInfo = await stat(filePath);
+  } catch {
+    sendJson(response, 404, { error: "媒体文件不存在。" });
+    return;
+  }
+  if (!fileInfo.isFile()) {
+    sendJson(response, 404, { error: "媒体文件不存在。" });
+    return;
+  }
+
+  const extension = path.extname(filePath).toLowerCase();
+  const contentTypes = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".webm": "video/webm",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".json": "application/json; charset=utf-8",
+  };
+  const range = request.headers.range;
+  response.setHeader("Accept-Ranges", "bytes");
+  response.setHeader("Content-Type", contentTypes[extension] || "application/octet-stream");
+
+  if (!range) {
+    response.statusCode = 200;
+    response.setHeader("Content-Length", fileInfo.size);
+    if (request.method === "HEAD") response.end();
+    else createReadStream(filePath).pipe(response);
+    return;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) {
+    response.statusCode = 416;
+    response.setHeader("Content-Range", `bytes */${fileInfo.size}`);
+    response.end();
+    return;
+  }
+  const start = match[1] ? Number(match[1]) : 0;
+  const requestedEnd = match[2] ? Number(match[2]) : fileInfo.size - 1;
+  const end = Math.min(requestedEnd, fileInfo.size - 1);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start > end || start >= fileInfo.size) {
+    response.statusCode = 416;
+    response.setHeader("Content-Range", `bytes */${fileInfo.size}`);
+    response.end();
+    return;
+  }
+
+  response.statusCode = 206;
+  response.setHeader("Content-Range", `bytes ${start}-${end}/${fileInfo.size}`);
+  response.setHeader("Content-Length", end - start + 1);
+  if (request.method === "HEAD") response.end();
+  else createReadStream(filePath, { start, end }).pipe(response);
 }
 
 
@@ -255,7 +348,7 @@ function runProcess(job, executable, args, cwd, logPath) {
 }
 
 
-async function loadResult(videoPath, reportPath, clipIndexPath, cached) {
+async function loadResult(videoPath, reportPath, clipIndexPath, cached, repoRoot) {
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   const videoInfo = await stat(videoPath);
   const events = reportToEvents(report);
@@ -264,7 +357,7 @@ async function loadResult(videoPath, reportPath, clipIndexPath, cached) {
     const clips = JSON.parse(await readFile(clipIndexPath, "utf8"));
     setPieceClips = clips.map((clip) => ({
       ...clip,
-      clipUrl: fileUrl(clip.clip_path),
+      clipUrl: fileUrl(clip.clip_path, repoRoot),
       typeLabel: setPieceLabels[clip.event_subtype] || setPieceLabels.unknown,
       startPosition: [clip.start_x, clip.start_y],
       endPosition: [clip.end_x, clip.end_y],
@@ -273,38 +366,213 @@ async function loadResult(videoPath, reportPath, clipIndexPath, cached) {
     setPieceClips = [];
   }
   return {
-    videoUrl: fileUrl(videoPath),
-    reportUrl: fileUrl(reportPath),
+    videoUrl: fileUrl(videoPath, repoRoot),
+    reportUrl: fileUrl(reportPath, repoRoot),
     events,
     l1Summary: summarizeL1(events),
     setPieces: setPieceClips,
     sizeBytes: videoInfo.size,
     cached,
-    pipeline: "SoccerNetGSR + 球场映射 + L1事件识别 + 定位球切片 + H.264转码",
+    pipeline: "SoccerNetGSR + 球场映射 + 关键事件识别 + 定位球切片 + H.264转码",
   };
 }
 
 
+async function loadDemoResult(resultId, repoRoot) {
+  if (resultId === "test5-formation-focus") {
+    const result = await loadDemoResult("test5-player-focus",repoRoot);
+    return {...result,...await loadLayeredResult(
+      path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_formation_focus/layered_analysis.json"),true,repoRoot)};
+  }
+  if (resultId === "test5-player-focus") {
+    const result = await loadLayeredResult(
+      path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_layered_v4/layered_analysis.json"),true,repoRoot);
+    const playerTrackingPath = "soccer_input_dataset/outputs/test_5min_player_focus/player_tracks.json";
+    return {...result,playerTrackingPath,playerTrackingHash:await sha256(path.join(repoRoot,playerTrackingPath)),
+      playerTrackingUrl:fileUrl(path.join(repoRoot,playerTrackingPath),repoRoot),
+      playerReviewsUrl:fileUrl(path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_player_focus/player_reviews.json"),repoRoot)};
+  }
+  if (resultId === "test5-relay-sol-v1") {
+    return loadLayeredResult(
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_relay_sol_v1/layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-relay-terra-v1") {
+    return loadLayeredResult(
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_relay_terra_v1/layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-layered-v4") {
+    return loadLayeredResult(
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v4/layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-openai-v1") {
+    return loadLayeredResult(
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2/test_5min_boxes.mp4"),
+      path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_openai_v1/layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-assistant-v3") {
+    const directory = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_assistant_review_v3");
+    return loadLayeredResult(path.join(directory, "test_5min_assistant_review.mp4"), path.join(directory, "layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-layered-v2") {
+    const directory = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2");
+    return loadLayeredResult(path.join(directory, "test_5min_boxes.mp4"), path.join(directory, "layered_analysis.json"), true, repoRoot);
+  }
+  if (resultId === "test5-dense-vision-v1") {
+    const outputDirectory = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_dense_vision_v1");
+    const videoPath = path.join(outputDirectory, "test_5min_dense_vision.mp4");
+    const reportPath = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_corner_review_v2/report/tactical_analysis_report.json");
+    const reviewIds = ["event-0013", "set-piece-001", "event-0104", "event-0155", "event-0249", "event-0317", "event-0326", "event-0345"];
+    const reviewPaths = reviewIds.map((id) => path.join(outputDirectory, "reviews", `${id}.deepseek.json`));
+    if (!(await Promise.all([videoPath, reportPath, ...reviewPaths].map(fileExists))).every(Boolean)) {
+      throw new Error("五分钟多帧视觉复核结果不完整，请先生成完整视频与复核文件");
+    }
+    const [videoInfo, ...reviews] = await Promise.all([
+      stat(videoPath),
+      ...reviewPaths.map((filePath) => readFile(filePath, "utf8").then(JSON.parse)),
+    ]);
+    const events = reviews.map((review) => {
+      const candidate = review.candidate;
+      const presentation = eventPresentation[candidate.event_type] || ["其他", "候选事件", "blue", "L1-01"];
+      const supported = review.fusion_status === "visual_supported_candidate";
+      const rejected = review.fusion_status === "rejected_candidate";
+      const uncertainSetPiece = candidate.event_type === "set_piece_delivery_candidate" && !supported;
+      const subtype = uncertainSetPiece ? "unknown" : (candidate.event_subtype || candidate.metrics?.set_piece_type || "unknown");
+      const verdict = supported ? "视觉支持候选" : rejected ? "视觉否定，待人工复核" : "证据不足，待人工复核";
+      const time = Number(candidate.time_sec);
+      return {
+        id: `vision:${candidate.event_id}`,
+        time,
+        end: Math.max(time + 3, Number(review.evidence_window_sec?.[1] || time + 4)),
+        category: presentation[0],
+        group: presentation[3],
+        type: uncertainSetPiece ? "定位球待复核" : presentation[1],
+        subtype,
+        title: uncertainSetPiece ? "定位球类型待复核" : `${candidate.label_zh || presentation[1]}${rejected ? "（视觉否定）" : ""}`,
+        summary: `${verdict}：${review.vision_review?.short_reason_zh || "需要回看原片"}`,
+        detail: `复核 ${review.frame_count} 帧 · ${verdict}`,
+        thumbnailUrl: fileUrl(path.join(outputDirectory, `${candidate.event_id}_poster.jpg`), repoRoot),
+        confidence: Math.round(Number(candidate.confidence || 0) * 100),
+        color: presentation[2],
+        reviewStatus: "candidate",
+        rawEventType: candidate.event_type,
+      };
+    }).sort((left, right) => left.time - right.time);
+    return {
+      videoUrl: fileUrl(videoPath, repoRoot),
+      reportUrl: fileUrl(reportPath, repoRoot),
+      events,
+      l1Summary: summarizeL1(events),
+      setPieces: [],
+      sizeBytes: videoInfo.size,
+      cached: true,
+      pipeline: "原始五分钟视频 + 二维候选 + 8节点多帧视觉复核 + H.264完整视频；其余候选未复核",
+    };
+  }
+  if (resultId === "full-pitch-ball-60s") {
+    const videoPath = path.join(repoRoot, "二维分析/分析视频2.mp4");
+    const reportPath = path.join(repoRoot, "二维分析/分析视频2_技战术结果/tactical_analysis_report.json");
+    if (!(await fileExists(videoPath)) || !(await fileExists(reportPath))) {
+      throw new Error("双机位足球分析结果不完整，请先运行 analyze_projection_with_ball.py");
+    }
+    const [report, videoInfo] = await Promise.all([
+      readFile(reportPath, "utf8").then(JSON.parse),
+      stat(videoPath),
+    ]);
+    return {
+      videoUrl: fileUrl(videoPath, repoRoot),
+      reportUrl: fileUrl(reportPath, repoRoot),
+      analysisMode: "spatial",
+      spatialAnalysis: report,
+      events: [],
+      setPieces: [],
+      sizeBytes: videoInfo.size,
+      cached: true,
+      pipeline: "双机位原画面 + 球员/足球投影 + 出界证据门控 + 分段空间指标",
+    };
+  }
+  if (resultId === "full-pitch-spatial-60s") {
+    const videoPath = path.join(repoRoot, "二维分析/分析视频.mp4");
+    const reportPath = path.join(repoRoot, "二维分析/spatial_analysis_report.json");
+    if (!(await fileExists(videoPath)) || !(await fileExists(reportPath))) {
+      throw new Error("二维空间分析结果不完整，请先运行 analyze_full_pitch_projection.py");
+    }
+    const [report, videoInfo] = await Promise.all([
+      readFile(reportPath, "utf8").then(JSON.parse),
+      stat(videoPath),
+    ]);
+    return {
+      videoUrl: fileUrl(videoPath, repoRoot),
+      reportUrl: fileUrl(reportPath, repoRoot),
+      analysisMode: "spatial",
+      spatialAnalysis: report,
+      events: [],
+      setPieces: [],
+      sizeBytes: videoInfo.size,
+      cached: true,
+      pipeline: "双机位坐标融合 + 红蓝队去重 + 5秒空间指标 + 多帧视觉解释",
+    };
+  }
+  const definition = demoResults[resultId];
+  if (!definition) return null;
+  const paths = Object.fromEntries(
+    Object.entries(definition).map(([key, relativePath]) => [key, path.resolve(repoRoot, relativePath)]),
+  );
+  const available = await Promise.all(Object.values(paths).map(fileExists));
+  if (!available.every(Boolean)) {
+    throw new Error(`本地样例结果不完整：${resultId}`);
+  }
+  return loadResult(paths.video, paths.report, paths.clips, true, repoRoot);
+}
+
+
 async function processJob(job, { repoRoot }) {
-  const knownVideo = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_current/test_5min_tactical_base_web.mp4");
-  const knownReportDirectory = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_current/l1_report_v1");
-  const knownReport = path.join(knownReportDirectory, "tactical_analysis_report.json");
+  const useRelay = Boolean(process.env.RELAY_API_KEY && process.env.RELAY_BASE_URL);
+  const useOpenAI = useRelay || Boolean(process.env.OPENAI_API_KEY);
+  const reviewModel = useRelay ? (process.env.RELAY_MODEL || "gpt-5.6-terra") : "gpt-5.6-sol";
+  const relayBase = useRelay ? process.env.RELAY_BASE_URL.replace(/\/+$/, "") : null;
+  const reviewEndpoint = useRelay ? `${relayBase}${relayBase.endsWith("/v1") ? "" : "/v1"}/responses` : "https://api.openai.com/v1/responses";
+  const knownDirectory = path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_layered_v2");
+  const knownVideo = path.join(knownDirectory, "test_5min_boxes.mp4");
+  const knownReport = useRelay
+    ? path.join(repoRoot, `soccer_input_dataset/outputs/${reviewModel === "gpt-5.6-sol" ? "test_5min_relay_sol_v1" : "test_5min_relay_terra_v1"}/layered_analysis.json`) : useOpenAI
+    ? path.join(repoRoot, "soccer_input_dataset/outputs/test_5min_openai_v1/layered_analysis.json")
+    : await fileExists(path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_formation_focus/layered_analysis.json"))
+      ? path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_formation_focus/layered_analysis.json")
+      : path.join(knownDirectory, "layered_analysis.json");
   const logPath = path.join(job.directory, "analysis.log");
   try {
     job.stage = "正在校验素材与已有分析缓存";
     job.progress = 8;
     const digest = await sha256(job.inputPath);
-    if (digest === TEST_5MIN_SHA256) {
+    const cacheAvailable = await Promise.all([
+      fileExists(knownVideo),
+      fileExists(knownReport),
+    ]).then((checks) => checks.every(Boolean));
+    const knownReview = cacheAvailable && useOpenAI ? JSON.parse(await readFile(knownReport, "utf8")) : null;
+    const reviewCacheValid = !useOpenAI || (knownReview?.reviewMetadata?.mode === (useRelay ? "compatible_api" : "openai_api")
+      && knownReview.reviewMetadata.model === reviewModel
+      && (!useRelay || knownReview.reviewMetadata.reasoning_effort === (process.env.RELAY_REASONING_EFFORT || "medium"))
+      && (!useRelay || knownReview.reviewMetadata.response_format === (process.env.RELAY_RESPONSE_FORMAT || "schema"))
+      && (knownReview.reviewMetadata.endpoint || "https://api.openai.com/v1/responses") === reviewEndpoint
+      && knownReview.reviewMetadata.workflow_version === "2026-09-30-openai-v1"
+      && knownReview.reviewMetadata.video_sha256 === digest
+      && knownReview.reviewMetadata.boundary_transition_audit === true
+      && !knownReview.reviewMetadata.task_states?.failed && !knownReview.reviewMetadata.task_states?.budget_exhausted);
+    if (digest === TEST_5MIN_SHA256 && cacheAvailable && reviewCacheValid) {
       job.stage = "已命中 test_5min 完整分析结果";
       job.progress = 88;
-      const clipDirectory = path.join(job.directory, "set_piece_clips");
-      await runProcess(job, "conda", [
-        "run", "-n", "sports", "python", path.join(repoRoot, "export_set_piece_clips.py"),
-        "--input-video", knownVideo,
-        "--manifest", path.join(knownReportDirectory, "set_piece_manifest.csv"),
-        "--output-dir", clipDirectory,
-      ], repoRoot, logPath);
-      job.result = await loadResult(knownVideo, knownReport, path.join(clipDirectory, "set_piece_clips.json"), true);
+      job.result = await loadLayeredResult(knownVideo, knownReport, true, repoRoot);
+      const trackingPath = "soccer_input_dataset/outputs/test_5min_player_focus/player_tracks.json";
+      if (await fileExists(path.join(repoRoot,trackingPath))) {
+        Object.assign(job.result, {playerTrackingPath:trackingPath,playerTrackingHash:await sha256(path.join(repoRoot,trackingPath)),
+          playerTrackingUrl:fileUrl(path.join(repoRoot,trackingPath),repoRoot),
+          playerReviewsUrl:fileUrl(path.join(repoRoot,"soccer_input_dataset/outputs/test_5min_player_focus/player_reviews.json"),repoRoot)});
+      }
       job.status = "completed";
       job.progress = 100;
       return;
@@ -317,6 +585,7 @@ async function processJob(job, { repoRoot }) {
     const webVideo = path.join(job.directory, "tactical_base_web.mp4");
     const reportDirectory = path.join(job.directory, "tactical_report");
     const jsonPath = path.join(workRoot, "SoccerNetGS/test", videoName, `${videoName}.json`);
+    const identityPath = path.join(job.directory, "identities.json");
 
     job.stage = "正在执行球员、足球检测跟踪与球场映射";
     job.progress = 15;
@@ -336,55 +605,83 @@ async function processJob(job, { repoRoot }) {
       "--goalkeeper-team0-colors", "yellowgreen",
     ], repoRoot, logPath);
 
+    job.stage = "正在复核球衣与门将轨迹身份";
+    job.progress = 62;
+    await runProcess(job, "conda", [
+      "run", "-n", "sports", "python", path.join(repoRoot, "refine_gsr_video_identities.py"),
+      "--video", job.inputPath, "--json-path", jsonPath, "--output-json", identityPath,
+    ], repoRoot, logPath);
+
     job.stage = "正在生成与本地项目一致的技战术可视化";
     job.progress = 66;
     await runProcess(job, "conda", [
       "run", "-n", "sports", "python", path.join(repoRoot, "make_tactical_visualization_video.py"),
       "--input-video", job.inputPath,
-      "--json-path", jsonPath,
+      "--json-path", identityPath,
       "--output-video", tacticalVideo,
+      "--boxes-only",
       "--yolo-fallback",
       "--fallback-backend", "ultralytics",
       "--team0-label", "蓝队",
       "--team1-label", "白队",
     ], repoRoot, logPath);
 
-    job.stage = "正在生成 L1 事件时间轴与定位球分类";
+    job.stage = "正在生成事件时间轴与定位球分类";
     job.progress = 80;
     await runProcess(job, "conda", [
       "run", "-n", "sports", "python", path.join(repoRoot, "run_tactical_analysis.py"),
-      "--json-path", jsonPath,
+      "--json-path", identityPath,
       "--input-video", job.inputPath,
       "--output-dir", reportDirectory,
     ], repoRoot, logPath);
 
-    job.stage = "正在按定位球事件切出独立片段";
+    job.stage = useOpenAI ? "正在进行时序视觉审核、补充证据与战术解读"
+      : process.env.DEEPSEEK_API_KEY ? "正在用前后5秒图像审核关键事件并生成分层解读" : "正在准备前后5秒审核证据与分层统计";
     job.progress = 88;
-    const clipDirectory = path.join(job.directory, "set_piece_clips");
+    const layeredDirectory = path.join(job.directory, "layered_review");
     await runProcess(job, "conda", [
-      "run", "-n", "sports", "python", path.join(repoRoot, "export_set_piece_clips.py"),
-      "--input-video", tacticalVideo,
-      "--manifest", path.join(reportDirectory, "set_piece_manifest.csv"),
-      "--output-dir", clipDirectory,
+      "run", "-n", "sports", "python", path.join(repoRoot, useOpenAI ? "run_openai_tactical_review.py" : "build_layered_tactical_review.py"),
+      "--video", job.inputPath,
+      "--report-json", path.join(reportDirectory, "tactical_analysis_report.json"),
+      "--output-dir", layeredDirectory,
+      ...(useRelay ? ["--base-url", relayBase, "--model", reviewModel, "--api-key-env", "RELAY_API_KEY",
+          "--reasoning-effort", process.env.RELAY_REASONING_EFFORT || "medium",
+          "--response-format", process.env.RELAY_RESPONSE_FORMAT || "schema", "--no-cost-limit", "--max-calls", "150"]
+        : useOpenAI ? ["--max-usd", process.env.OPENAI_REVIEW_MAX_USD || "8", "--max-calls", "80"]
+        : process.env.DEEPSEEK_API_KEY ? ["--review-api"] : []),
     ], repoRoot, logPath);
 
     job.stage = "正在转换网页播放格式";
     job.progress = 92;
     await runProcess(job, "conda", [
       "run", "-n", "sports", "ffmpeg", "-y", "-loglevel", "error",
-      "-i", tacticalVideo,
+      "-i", tacticalVideo, "-i", job.inputPath, "-map", "0:v", "-map", "1:a?",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
-      "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", webVideo,
+      "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-shortest", webVideo,
     ], repoRoot, logPath);
 
-    job.result = await loadResult(
+    job.result = await loadLayeredResult(
       webVideo,
-      path.join(reportDirectory, "tactical_analysis_report.json"),
-      path.join(clipDirectory, "set_piece_clips.json"),
+      path.join(layeredDirectory, "layered_analysis.json"),
       false,
+      repoRoot,
     );
+    job.stage = "正在生成可选球员编号轨迹";
+    job.progress = 96;
+    const playerDirectory = path.join(job.directory,"player_focus");
+    await runProcess(job,"conda",["run","-n","sports","python",path.join(repoRoot,"build_player_focus_video.py"),
+      "--video",job.inputPath,"--gsr-json",identityPath,"--output-dir",playerDirectory],repoRoot,logPath);
+    const trackingFile = path.join(playerDirectory,"player_tracks.json");
+    job.stage = "正在生成可选阵型分布证据";
+    job.progress = 98;
+    const formationDirectory = path.join(job.directory,"formation_evidence");
+    await runProcess(job,"conda",["run","-n","sports","python",path.join(repoRoot,"build_formation_evidence.py"),
+      "--video",job.inputPath,"--gsr-json",identityPath,"--bundle",path.join(layeredDirectory,"layered_analysis.json"),
+      "--tracking-json",trackingFile,"--output-dir",formationDirectory],repoRoot,logPath);
+    job.result = await loadLayeredResult(webVideo,path.join(formationDirectory,"layered_analysis.json"),false,repoRoot);
+    Object.assign(job.result,{playerTrackingPath:path.relative(repoRoot,trackingFile),playerTrackingUrl:fileUrl(trackingFile,repoRoot)});
     job.status = "completed";
-    job.stage = "完整技战术分析已完成";
+    job.stage = job.result.reviewWarnings?.length ? "分析输出已生成，部分节点审核未完成" : "完整技战术分析已完成";
     job.progress = 100;
   } catch (error) {
     job.status = "failed";
@@ -393,6 +690,48 @@ async function processJob(job, { repoRoot }) {
   } finally {
     job.child = null;
   }
+}
+
+
+async function loadLayeredResult(videoPath, reportPath, cached, repoRoot) {
+  const [report, videoInfo] = await Promise.all([readFile(reportPath, "utf8").then(JSON.parse), stat(videoPath)]);
+  const events = report.events.map((event) => ({
+    ...event,
+    thumbnailUrl: event.thumbnailPath ? fileUrl(event.thumbnailPath, repoRoot) : null,
+    reviewClipUrl: event.clipPath ? fileUrl(event.clipPath, repoRoot) : null,
+    evidenceFrames: (event.evidenceFrames || []).map((frame) => ({time: frame.time, url: fileUrl(frame.path, repoRoot)})),
+    inspectedFrames: (event.inspectedFrames || []).map((frame) => ({time: frame.time, url: fileUrl(frame.path, repoRoot)})),
+  }));
+  const layers = Object.fromEntries(Object.entries(report.layers).map(([key, layer]) => [key, {
+    ...layer,
+    ...(layer.items ? { items: layer.items.map((item) => ({
+      ...item,
+      thumbnailUrl: item.thumbnailPath ? fileUrl(item.thumbnailPath, repoRoot) : null,
+      ...(item.formationEvidence ? {formationEvidence:{...item.formationEvidence,
+        imageUrl:fileUrl(item.formationEvidence.imagePath,repoRoot),
+        originalUrl:fileUrl(item.formationEvidence.originalPath,repoRoot),
+        clipUrl:fileUrl(item.formationEvidence.clipPath,repoRoot)}} : {}),
+      reviewClipUrl: item.clipPath ? fileUrl(item.clipPath, repoRoot) : null,
+      inspectedFrames: (item.inspectedFrames || []).map((frame) => ({time: frame.time, url: fileUrl(frame.path, repoRoot)})),
+    })) } : {}),
+  }]));
+  return {
+    videoUrl: fileUrl(videoPath, repoRoot), reportUrl: fileUrl(reportPath, repoRoot),
+    events, layers, reviewSummary: report.reviewSummary, boxesOnly: true,
+    l1Summary: summarizeL1(events.filter((event) => event.publishedForStatistics !== false)), sizeBytes: videoInfo.size, cached,
+    setPieces: events.filter((event) => event.category === "定位球" && event.reviewClipUrl && event.publishedForStatistics !== false).map((event) => ({
+      event_id: event.id, clipUrl: event.reviewClipUrl, event_subtype: event.subtype,
+      typeLabel: setPieceLabels[event.subtype] || "类型待复核", label_zh: event.title,
+      timestamp_sec: event.time, clip_duration_sec: event.end - event.evidenceStart,
+      summary_zh: event.summary, outcome: "unknown",
+    })),
+    reviewWarnings: ["openai_api", "compatible_api"].includes(report.reviewMetadata?.mode)
+      && (report.reviewMetadata.task_states.failed || report.reviewMetadata.task_states.budget_exhausted)
+      ? ["部分节点因审核失败或预算上限未完成，保留待核实，不计入采纳统计。"] : [],
+    pipeline: ["openai_api", "compatible_api"].includes(report.reviewMetadata?.mode)
+      ? "自动时序视觉复核 + 动态补充证据 + 门将复审；非人工专家真值"
+      : report.reviewMetadata ? "助手直接抽帧复核样例；非自动分析或人工专家真值" : "检测框原片 + 前后各5秒图像复核 + 关键事件/数据统计/进攻组织/队形空间",
+  };
 }
 
 
@@ -405,6 +744,26 @@ export function localAnalysisPlugin({ repoRoot }) {
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
         const requestUrl = new URL(request.url, "http://localhost");
+        if (request.method === "POST" && requestUrl.pathname === "/api/player-review") {
+          try {sendJson(response,200,await exportPlayerReview(await readJsonBody(request),repoRoot));}
+          catch(error) {sendJson(response,400,{error:error.message});}
+          return;
+        }
+        if ((request.method === "GET" || request.method === "HEAD") && requestUrl.pathname === "/api/media") {
+          await serveMedia(request, response, requestUrl, repoRoot);
+          return;
+        }
+        const demoResultMatch = requestUrl.pathname.match(/^\/api\/demo-results\/([a-z0-9-]+)$/i);
+        if (request.method === "GET" && demoResultMatch) {
+          try {
+            const result = await loadDemoResult(demoResultMatch[1], repoRoot);
+            if (!result) sendJson(response, 404, { error: "找不到该本地样例结果。" });
+            else sendJson(response, 200, result);
+          } catch (error) {
+            sendJson(response, 500, { error: error.message });
+          }
+          return;
+        }
         if (request.method === "POST" && requestUrl.pathname === "/api/analysis") {
           const id = randomUUID();
           const directory = path.join(runtimeRoot, "jobs", id);
@@ -445,7 +804,7 @@ export function localAnalysisPlugin({ repoRoot }) {
         if (request.method === "GET" && l1Match) {
           const job = jobs.get(l1Match[1]);
           if (!job) sendJson(response, 404, { error: "找不到该分析任务。" });
-          else if (!job.result) sendJson(response, 409, { error: "L1 分析尚未完成。", ...publicJob(job) });
+          else if (!job.result) sendJson(response, 409, { error: "关键事件分析尚未完成。", ...publicJob(job) });
           else sendJson(response, 200, {
             summary: job.result.l1Summary,
             events: job.result.events,
@@ -457,7 +816,7 @@ export function localAnalysisPlugin({ repoRoot }) {
         if (request.method === "PATCH" && reviewMatch) {
           const job = jobs.get(reviewMatch[1]);
           if (!job?.result) {
-            sendJson(response, 404, { error: "找不到可审核的 L1 分析结果。" });
+            sendJson(response, 404, { error: "找不到可审核的事件分析结果。" });
             return;
           }
           try {
@@ -470,7 +829,7 @@ export function localAnalysisPlugin({ repoRoot }) {
             }
             const event = job.result.events.find((item) => item.id === eventId);
             if (!event) {
-              sendJson(response, 404, { error: "找不到该 L1 事件。" });
+              sendJson(response, 404, { error: "找不到该关键事件。" });
               return;
             }
             event.reviewStatus = payload.reviewStatus;

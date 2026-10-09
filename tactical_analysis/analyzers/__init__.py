@@ -2,6 +2,7 @@
 
 from . import (
     attacking_chains,
+    ball_out,
     defensive_gaps,
     defensive_interventions,
     defensive_risk,
@@ -23,6 +24,7 @@ from . import (
 
 __all__ = [
     "attacking_chains",
+    "ball_out",
     "defensive_gaps",
     "defensive_interventions",
     "defensive_risk",

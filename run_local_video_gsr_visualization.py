@@ -13,6 +13,7 @@ import cv2
 import yaml
 
 from kpts import predict as predict_homography
+from ball_detection_adapter import make_segment_video, merge_ball_trajectory
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -49,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goalkeeper-team0-colors", default="", help="Optional comma-separated goalkeeper colors for team 0.")
     parser.add_argument("--goalkeeper-team1-colors", default="", help="Optional comma-separated goalkeeper colors for team 1.")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--ball-backend", choices=("rfdetr-tcn", "legacy"), default="rfdetr-tcn",
+        help="Football detector; RF-DETR + SAHI + TCN is the default for new runs.",
+    )
+    parser.add_argument("--ball-trajectory", type=Path, default=None,
+                        help="Reuse an API trajectory.jsonl for the extracted frame range.")
     return parser.parse_args()
 
 
@@ -272,6 +279,28 @@ def main() -> int:
     run_step("refine-team-identities", [sys.executable, "refine_team_identities.py", "--config", str(config_path)])
     run_step("court-meter", [sys.executable, "IDATR/create_court_file.py", "--config", str(config_path)])
     run_step("json-format", [sys.executable, "write_json_file_team.py", "--config", str(config_path)])
+
+    if args.ball_backend == "rfdetr-tcn":
+        trajectory = args.ball_trajectory
+        if trajectory is None:
+            api_entry = PROJECT_ROOT / "API" / "run.py"
+            if not api_entry.is_file():
+                raise FileNotFoundError(f"RF-DETR/TCN package missing: {api_entry}")
+            ball_dir = work_root / "ball_inference" / args.video_name
+            ball_dir.mkdir(parents=True, exist_ok=True)
+            if args.start_frame == 1 and args.max_frames == 0:
+                ball_input = input_video
+            else:
+                ball_input = ball_dir / "input_segment.mp4"
+                make_segment_video(image_dir, ball_input, fps)
+            run_step("rfdetr-tcn-ball", [sys.executable, str(api_entry), "--input", str(ball_input),
+                                          "--output-dir", str(ball_dir)])
+            trajectory = ball_dir / "trajectory.jsonl"
+        counts = merge_ball_trajectory(
+            video_dir / f"{args.video_name}.json", Path(trajectory), image_dir,
+            PROJECT_ROOT / "template" / "Radar_Dimen.png", args.video_name.split("-")[-1], image_count,
+        )
+        print(f"RF-DETR/TCN ball merge: {counts}", flush=True)
 
     visualization_dir = video_dir / "visualization_local_video"
     run_step(

@@ -26,8 +26,6 @@ pyyaml
 lapx
 ptflops
 einops
-unsloth
-unsloth_zoo
 tensorboard
 mplsoccer
 ftfy
@@ -36,5 +34,11 @@ cython_bbox
 ninja
 rich
 scikit-image
+rfdetr==1.9.2
+sahi==0.11.36
+jsonschema>=4.23,<5
+ultralytics==8.4.37
+SoccerNet==0.1.62
+# Optional LLaMA jersey mode: requirements-llama.txt
 # torchreid is often installed via: pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
 clip @ git+https://github.com/openai/CLIP.git
