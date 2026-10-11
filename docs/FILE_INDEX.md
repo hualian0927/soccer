@@ -80,6 +80,7 @@
 | [ENVIRONMENT.md](<../docs/ENVIRONMENT.md>) | 环境 |
 | [FEATURES.md](<../docs/FEATURES.md>) | 功能边界 |
 | [FILE_INDEX.md](<../docs/FILE_INDEX.md>) | 当前已提交目录与逐文件用途索引 |
+| [对话历史.md](<../docs/对话历史.md>) | 新对话交接：项目演进、用户偏好、代码入口、验证记录与待办（不含凭证） |
 | [L1事件层初步复现范围.md](<../docs/L1事件层初步复现范围.md>) | 文档：L1 事件层初步复现范围 |
 | [L3-L4战术深度复盘与评语.md](<../docs/L3-L4战术深度复盘与评语.md>) | 文档：L3-L4 战术深度复盘与评语 |
 | [OpenAI视觉审核工作流.md](<../docs/OpenAI视觉审核工作流.md>) | 文档：OpenAI 时序视觉审核工作流 |
