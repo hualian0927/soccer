@@ -166,9 +166,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 全部已提交文件的路径与简述见 [逐文件索引](docs/FILE_INDEX.md)。保留上游组件内部目录，避免破坏它们的安装和导入约定。
 
-### 本地资源目录（不上传）
 
-`checkpoints/` 保存模型（包括迁入的 `yolov8n.pt`、`yolov8n-pose.pt`）；`data/archives/` 保存原根目录 ZIP；`docs/local_research/` 保存个人调研 Markdown/PDF；`data/`、`soccer_input_dataset/`、`二维分析/`、`Sportec Open DFL/` 保存素材与结果；`sports-paper/` 保存论文；`web_preview/runtime/` 保存上传任务。已存在的素材目录不再移动，避免历史项目媒体路径失效。缓存不属于运行源码，不纳入 Git。
 
 ## 目录迁移后的调用方式
 
@@ -197,12 +195,3 @@ npm run build
 
 Playwright 比赛播放测试需要另行准备对应视频和分析结果，详见运行手册。测试通过不代表赛事识别精度已量化。
 
-## 不上传的内容
-
-模型权重、比赛视频、图片抽帧、数据集、生成报告与缓存、`node_modules`、构建结果、真实 `.env` 和 API 密钥均不提交。`review_annotations/` 仅保存开发样例复核记录，不含视频，不会自动适用于其他比赛。
-
-密钥仅放后端环境变量，示例见 [.env.example](.env.example)。本地 API 无公网用户认证，应仅监听本机。对外部署需补充认证、配额、任务隔离与文件权限。只有获得相应授权的比赛视频才可提交外部模型。
-
-## 上游与许可
-
-本地扩展源于 [yinmayoo185/SoccernetGSR](https://github.com/yinmayoo185/SoccernetGSR)，使用仓库现有 YOLOX、Torchreid、CLIP、SoccerNet 评测等组件。保留源文件版权信息与现有许可证；第三方代码、模型、字体、数据授权分别适用，此分支不代表对所有内容统一授予商业许可。SoccerNet 赛事素材需自行取得授权，不随代码分发。
